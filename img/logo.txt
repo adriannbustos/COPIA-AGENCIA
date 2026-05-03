@@ -1,0 +1,1 @@
+Guarda un logo de la Policía de Chubut en img/logo_policia.png (150x150px)
