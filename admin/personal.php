@@ -3107,7 +3107,7 @@ value="<?php echo $personal_edit['fecha_baja'] ?? (isset($form_data['fecha_baja'
 <div class="col-md-3">
 <div class="form-check form-switch">
 <input class="form-check-input" type="checkbox" name="habilitacion_comercial" id="habilitacion_comercial" <?php echo ($personal_edit['habilitacion_comercial'] ?? 0) ? 'checked' : ''; ?>>
-<label class="form-check-label" for="habilitacion_comercial">Habilitación Comercial</label>
+<label class="form-check-label" for="habilitacion_comercial">DDHH</label>
 </div>
 </div>
 </div>
@@ -3638,7 +3638,7 @@ foreach ($sucursales_persona as $sucursal):
 <div class="col-md-3">
 <div class="form-check form-switch">
 <input class="form-check-input" type="checkbox" name="habilitacion_comercial" id="habilitacion_comercial_edit_<?php echo $persona['id']; ?>" <?php echo ($persona['habilitacion_comercial'] ?? 0) ? 'checked' : ''; ?>>
-<label class="form-check-label" for="habilitacion_comercial_edit_<?php echo $persona['id']; ?>">Habilitación Comercial</label>
+<label class="form-check-label" for="habilitacion_comercial_edit_<?php echo $persona['id']; ?>">DDHH</label>
 </div>
 </div>
 </div>
