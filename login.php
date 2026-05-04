@@ -1,8 +1,12 @@
 <?php
-ini_set('session.cookie_httponly', 1);
-ini_set('session.cookie_secure', 1); // Cambiar a 1 si usas HTTPS
-ini_set('session.use_strict_mode', 1);
-ini_set('session.cookie_samesite', 'Lax');
+// Configuración segura de sesiones (AGREGAR al inicio, antes de session_start())
+if (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') {
+    ini_set('session.cookie_secure', 1);        // Solo enviar cookie por HTTPS
+}
+ini_set('session.cookie_httponly', 1);          // Bloquear acceso JS a la cookie
+ini_set('session.cookie_samesite', 'Strict');   // Prevenir CSRF via cookies
+ini_set('session.use_strict_mode', 1);          // Rechazar IDs de sesión no inicializados
+ini_set('session.cookie_lifetime', 1800);       // Expiración: 30 minutos
 header("X-Frame-Options: DENY");
 header("X-Content-Type-Options: nosniff");
 header("X-XSS-Protection: 1; mode=block");
