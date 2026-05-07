@@ -3,309 +3,214 @@ require_once '../config/database.php';
 require_once '../config/auth.php';
 require_once '../config/auditoria_func.php';
 require_once '../config/session_manager.php';
-
-// [C2] & [A8] ValidaciÃ³n estandarizada de sesiÃ³n contra BD en todas las pÃ¡ginas protegidas
+// [C2] & [A8] Validación estandarizada de sesión contra BD en todas las páginas protegidas
 requireValidSession();
-
 // [C4] Revalidar rol contra base de datos en cada request para mayor seguridad
 $roles_permitidos = ['administrador', 'carga', 'operador'];
 $rol_usuario = '';
-
 if ($auth->isLoggedIn()) {
-    $user_session = $auth->getCurrentUser();
-    $user_id = $user_session['id'] ?? null;
-    
-    if ($user_id) {
-        $conn_check = getDBConnection();
-        $stmt_check = $conn_check->prepare("SELECT rol FROM usuarios WHERE id = ? AND activo = TRUE LIMIT 1");
-        $stmt_check->execute([$user_id]);
-        $resultado = $stmt_check->fetch(PDO::FETCH_ASSOC);
-        if ($resultado && isset($resultado['rol'])) {
-            $rol_usuario = $resultado['rol'];
-        }
-    }
+$user_session = $auth->getCurrentUser();
+$user_id = $user_session['id'] ?? null;
+if ($user_id) {
+$conn_check = getDBConnection();
+$stmt_check = $conn_check->prepare("SELECT rol FROM usuarios WHERE id = ? AND activo = TRUE LIMIT 1");
+$stmt_check->execute([$user_id]);
+$resultado = $stmt_check->fetch(PDO::FETCH_ASSOC);
+if ($resultado && isset($resultado['rol'])) {
+$rol_usuario = $resultado['rol'];
 }
-
+}
+}
 if (!$auth->isLoggedIn() || !in_array($rol_usuario, $roles_permitidos, true)) {
-    header('Location: ../login.php');
-    exit;
+header('Location: ../login.php');
+exit;
 }
-
 $current_page = 'dashboard';
 $user = $auth->getCurrentUser();
 $conn = getDBConnection();
 $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-
 $success = $_SESSION['success'] ?? '';
 $error = $_SESSION['error'] ?? '';
 unset($_SESSION['success'], $_SESSION['error']);
-
 // ============================================================================
-// FUNCIÃ“N PARA OBTENER ICONO SEGÃšN TIPO DE ALERTA
+// FUNCIÓN PARA OBTENER ICONO SEGÚN TIPO DE ALERTA
 // ============================================================================
 function obtenerIconoAlerta($tipo) {
-    $iconos = [
-        'empresas_inactivas' => 'building', 'empresas_sin_responsable' => 'user-shield', 'empresas_cuit_duplicado' => 'exclamation-triangle', 'empresas_sin_documentacion' => 'file-contract',
-        'sucursales_pendientes_aprobacion' => 'clock', 'aranceles_vencidos' => 'money-bill-wave', 'sucursales_rechazadas' => 'times-circle', 'sucursales_documentacion_incompleta' => 'file-contract', 'sucursales_sin_pdf_resolucion' => 'file-pdf',
-        'doc_vencida' => 'user-times', 'doc_por_vencer' => 'user-clock', 'personal_inactivo_sin_baja' => 'user-slash', 'documentacion_pendiente_revision' => 'file-signature', 'revalidaciones_vencidas' => 'sync-alt', 'revalidaciones_por_vencer' => 'hourglass-half', 'credenciales_sin_pagar' => 'credit-card', 'personal_sin_foto' => 'image', 'personal_sin_pdf_datos' => 'file-pdf', 'personal_sin_cupon_pago' => 'receipt', 'personal_sin_certificado' => 'certificate',
-        'recursos_pendientes_aprobacion' => 'clipboard-list', 'recursos_rechazados' => 'times-circle', 'recursos_items_vencidos' => 'box-open', 'recursos_sin_pdf' => 'file-pdf', 'recursos_por_vencer' => 'hourglass-half',
-        'servicios_pendientes_aprobacion' => 'clock', 'servicios_con_sanciones' => 'gavel', 'servicios_sin_pdf' => 'file-pdf', 'servicios_vencidos' => 'calendar-times', 'servicios_sin_personal_asignado' => 'user-slash',
-        'inspecciones_pendientes' => 'clipboard-list', 'inspecciones_con_observaciones' => 'exclamation-circle', 'inspecciones_con_sanciones' => 'gavel', 'inspecciones_sin_sumario' => 'link-slash', 'inspecciones_por_vencer' => 'hourglass-half',
-        'inspecciones_programadas_hoy' => 'calendar-day', 'inspecciones_programadas_vencidas' => 'calendar-times', 'inspecciones_programadas_pendientes' => 'calendar-check',
-        'documentos_pendientes_revision' => 'file-signature', 'documentos_rechazados' => 'times-circle', 'documentos_sin_observaciones' => 'file-alt',
-        'informe_pendiente' => 'file-alt', 'multas_pendientes' => 'file-invoice-dollar'
-    ];
-    return $iconos[$tipo] ?? 'exclamation-circle';
+$iconos = [
+'empresas_inactivas' => 'building', 'empresas_sin_responsable' => 'user-shield', 'empresas_cuit_duplicado' => 'exclamation-triangle', 'empresas_sin_documentacion' => 'file-contract',
+'sucursales_pendientes_aprobacion' => 'clock', 'aranceles_vencidos' => 'money-bill-wave', 'sucursales_rechazadas' => 'times-circle', 'sucursales_documentacion_incompleta' => 'file-contract', 'sucursales_sin_pdf_resolucion' => 'file-pdf',
+'doc_vencida' => 'user-times', 'doc_por_vencer' => 'user-clock', 'personal_inactivo_sin_baja' => 'user-slash', 'documentacion_pendiente_revision' => 'file-signature', 'revalidaciones_vencidas' => 'sync-alt', 'revalidaciones_por_vencer' => 'hourglass-half', 'credenciales_sin_pagar' => 'credit-card', 'personal_sin_foto' => 'image', 'personal_sin_pdf_datos' => 'file-pdf', 'personal_sin_cupon_pago' => 'receipt', 'personal_sin_certificado' => 'certificate',
+'recursos_pendientes_aprobacion' => 'clipboard-list', 'recursos_rechazados' => 'times-circle', 'recursos_items_vencidos' => 'box-open', 'recursos_sin_pdf' => 'file-pdf', 'recursos_por_vencer' => 'hourglass-half',
+'servicios_pendientes_aprobacion' => 'clock', 'servicios_con_sanciones' => 'gavel', 'servicios_sin_pdf' => 'file-pdf', 'servicios_vencidos' => 'calendar-times', 'servicios_sin_personal_asignado' => 'user-slash',
+'inspecciones_pendientes' => 'clipboard-list', 'inspecciones_con_observaciones' => 'exclamation-circle', 'inspecciones_con_sanciones' => 'gavel', 'inspecciones_sin_sumario' => 'link-slash', 'inspecciones_por_vencer' => 'hourglass-half',
+'inspecciones_programadas_hoy' => 'calendar-day', 'inspecciones_programadas_vencidas' => 'calendar-times', 'inspecciones_programadas_pendientes' => 'calendar-check',
+'documentos_pendientes_revision' => 'file-signature', 'documentos_rechazados' => 'times-circle', 'documentos_sin_observaciones' => 'file-alt',
+'informe_pendiente' => 'file-alt', 'multas_pendientes' => 'file-invoice-dollar'
+];
+return $iconos[$tipo] ?? 'exclamation-circle';
 }
-
 function obtenerColorPrioridad($prioridad) {
-    return match($prioridad) {
-        'alta' => '#e74c3c',
-        'media' => '#f39c12',
-        'baja' => '#3498db',
-        default => '#3498db'
-    };
+return match($prioridad) {
+'alta' => '#e74c3c',
+'media' => '#f39c12',
+'baja' => '#3498db',
+default => '#3498db'
+};
 }
-
 function obtenerModuloAlerta($tipo) {
-    if (in_array($tipo, ['empresas_inactivas', 'empresas_sin_responsable', 'empresas_cuit_duplicado', 'empresas_sin_documentacion'])) return 'empresas';
-    if (in_array($tipo, ['sucursales_pendientes_aprobacion', 'aranceles_vencidos', 'sucursales_rechazadas', 'sucursales_documentacion_incompleta', 'sucursales_sin_pdf_resolucion'])) return 'sucursales';
-    if (in_array($tipo, ['doc_vencida', 'doc_por_vencer', 'personal_inactivo_sin_baja', 'documentacion_pendiente_revision', 'revalidaciones_vencidas', 'revalidaciones_por_vencer', 'credenciales_sin_pagar', 'personal_sin_foto', 'personal_sin_pdf_datos', 'personal_sin_cupon_pago', 'personal_sin_certificado'])) return 'personal';
-    if (in_array($tipo, ['recursos_pendientes_aprobacion', 'recursos_rechazados', 'recursos_items_vencidos', 'recursos_sin_pdf', 'recursos_por_vencer'])) return 'recursos';
-    if (in_array($tipo, ['servicios_pendientes_aprobacion', 'servicios_con_sanciones', 'servicios_sin_pdf', 'servicios_vencidos', 'servicios_sin_personal_asignado'])) return 'servicios';
-    if (in_array($tipo, ['inspecciones_pendientes', 'inspecciones_con_observaciones', 'inspecciones_con_sanciones', 'inspecciones_sin_sumario', 'inspecciones_por_vencer'])) return 'inspecciones';
-    if (in_array($tipo, ['inspecciones_programadas_hoy', 'inspecciones_programadas_vencidas', 'inspecciones_programadas_pendientes'])) return 'inspecciones_programadas';
-    if (in_array($tipo, ['documentos_pendientes_revision', 'documentos_rechazados', 'documentos_sin_observaciones'])) return 'documentos';
-    return 'otros';
+if (in_array($tipo, ['empresas_inactivas', 'empresas_sin_responsable', 'empresas_cuit_duplicado', 'empresas_sin_documentacion'])) return 'empresas';
+if (in_array($tipo, ['sucursales_pendientes_aprobacion', 'aranceles_vencidos', 'sucursales_rechazadas', 'sucursales_documentacion_incompleta', 'sucursales_sin_pdf_resolucion'])) return 'sucursales';
+if (in_array($tipo, ['doc_vencida', 'doc_por_vencer', 'personal_inactivo_sin_baja', 'documentacion_pendiente_revision', 'revalidaciones_vencidas', 'revalidaciones_por_vencer', 'credenciales_sin_pagar', 'personal_sin_foto', 'personal_sin_pdf_datos', 'personal_sin_cupon_pago', 'personal_sin_certificado'])) return 'personal';
+if (in_array($tipo, ['recursos_pendientes_aprobacion', 'recursos_rechazados', 'recursos_items_vencidos', 'recursos_sin_pdf', 'recursos_por_vencer'])) return 'recursos';
+if (in_array($tipo, ['servicios_pendientes_aprobacion', 'servicios_con_sanciones', 'servicios_sin_pdf', 'servicios_vencidos', 'servicios_sin_personal_asignado'])) return 'servicios';
+if (in_array($tipo, ['inspecciones_pendientes', 'inspecciones_con_observaciones', 'inspecciones_con_sanciones', 'inspecciones_sin_sumario', 'inspecciones_por_vencer'])) return 'inspecciones';
+if (in_array($tipo, ['inspecciones_programadas_hoy', 'inspecciones_programadas_vencidas', 'inspecciones_programadas_pendientes'])) return 'inspecciones_programadas';
+if (in_array($tipo, ['documentos_pendientes_revision', 'documentos_rechazados', 'documentos_sin_observaciones'])) return 'documentos';
+return 'otros';
 }
 
+// ? OPTIMIZACIÓN: Caché estática para reducir queries a information_schema de ~19 a 1 por request
 function columnaExiste($conn, $tabla, $columna) {
-    try {
-        $stmt = $conn->prepare("SELECT COUNT(*) as total FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+    static $cache = [];
+    $key = "{$tabla}.{$columna}";
+    if (!isset($cache[$key])) {
+        $stmt = $conn->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
         $stmt->execute([$tabla, $columna]);
-        return $stmt->fetch()['total'] > 0;
-    } catch (Exception $e) { return false; }
+        $cache[$key] = (bool) $stmt->fetchColumn();
+    }
+    return $cache[$key];
 }
 
 function tablaExiste($conn, $tabla) {
-    try {
-        $stmt = $conn->prepare("SELECT COUNT(*) as total FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
-        $stmt->execute([$tabla]);
-        return $stmt->fetch()['total'] > 0;
-    } catch (Exception $e) { return false; }
+try {
+$stmt = $conn->prepare("SELECT COUNT(*) as total FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?");
+$stmt->execute([$tabla]);
+return $stmt->fetch()['total'] > 0;
+} catch (Exception $e) { return false; }
 }
+
 
 function obtenerAlertas($conn) {
     $alertas = [];
-    $hoy = date('Y-m-d');
-    $proximos_30_dias = date('Y-m-d', strtotime('+30 days'));
-
-    // EMPRESAS
     try {
-        if (columnaExiste($conn, 'empresas', 'activo')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM empresas WHERE activo = FALSE");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'empresas_inactivas', 'prioridad' => 'alta', 'titulo' => 'Empresas Inactivas', 'descripcion' => "Hay {$total} empresa(s) inactivas", 'accion_url' => 'empresas.php?search_estado=inactivas'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Empresas: " . $e->getMessage()); }
-    
-    try {
-        if (columnaExiste($conn, 'empresas', 'responsable_id')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM empresas WHERE responsable_id IS NULL AND activo = TRUE");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'empresas_sin_responsable', 'prioridad' => 'media', 'titulo' => 'Empresas Sin Responsable', 'descripcion' => "Hay {$total} empresa(s) sin responsable", 'accion_url' => 'empresas.php'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Empresas Resp: " . $e->getMessage()); }
+        // ? Consulta consolidada: 29 COUNTs individuales ? 1 única query
+        $sql = "SELECT
+            (SELECT COUNT(*) FROM empresas WHERE activo = FALSE) AS empresas_inactivas,
+            (SELECT COUNT(*) FROM empresas WHERE responsable_id IS NULL AND activo = TRUE) AS empresas_sin_responsable,
+            (SELECT COUNT(*) FROM (SELECT cuit FROM empresas WHERE cuit IS NOT NULL AND cuit != '' GROUP BY cuit HAVING COUNT(*) > 1) AS dups) AS empresas_cuit_duplicado,
+            (SELECT COUNT(*) FROM sucursales WHERE (estado_aprobacion = 'pendiente' OR estado_aprobacion IS NULL) AND en_funcionamiento = 1) AS sucursales_pendientes_aprobacion,
+            (SELECT COUNT(*) FROM sucursales WHERE fecha_pago_arancel IS NOT NULL AND fecha_pago_arancel < DATE_SUB(NOW(), INTERVAL 380 DAY)) AS aranceles_vencidos,
+            (SELECT COUNT(*) FROM sucursales WHERE estado_aprobacion = 'rechazado') AS sucursales_rechazadas,
+            (SELECT COUNT(*) FROM personal WHERE activo = TRUE AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento <= CURDATE()) AS doc_vencida,
+            (SELECT COUNT(*) FROM personal WHERE activo = TRUE AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 30 DAY)) AS doc_por_vencer,
+            (SELECT COUNT(*) FROM personal WHERE activo = FALSE AND baja = FALSE) AS personal_inactivo_sin_baja,
+            (SELECT COUNT(*) FROM documentos_sucursales WHERE estado = 'pendiente') AS documentos_pendientes_revision,
+            (SELECT COUNT(*) FROM documentos_sucursales WHERE estado = 'rechazado' AND fecha_revision >= DATE_SUB(NOW(), INTERVAL 7 DAY)) AS documentos_rechazados,
+            (SELECT COUNT(*) FROM documentos_sucursales WHERE estado = 'rechazado' AND (motivacion_rechazo IS NULL OR motivacion_rechazo = '')) AS documentos_sin_observaciones,
+            (SELECT COUNT(*) FROM recursos_sucursal WHERE estado = 'pendiente') AS recursos_pendientes_aprobacion,
+            (SELECT COUNT(*) FROM servicios WHERE estado = 'pendiente') AS servicios_pendientes_aprobacion,
+            (SELECT COUNT(*) FROM inspecciones WHERE estado = 'pendiente') AS inspecciones_pendientes,
+            COALESCE((SELECT COUNT(*) FROM inspecciones_programadas WHERE fecha_programada = CURDATE() AND estado = 'pendiente'), 0) AS inspecciones_programadas_hoy,
+            COALESCE((SELECT COUNT(*) FROM inspecciones_programadas WHERE fecha_programada < CURDATE() AND estado = 'pendiente'), 0) AS inspecciones_programadas_vencidas,
+            COALESCE((SELECT COUNT(*) FROM inspecciones_programadas WHERE fecha_programada > CURDATE() AND estado = 'pendiente'), 0) AS inspecciones_programadas_pendientes,
+            COALESCE((SELECT COUNT(*) FROM multas WHERE estado = 'pendiente'), 0) AS multas_pendientes
+        ";
 
-    try {
-        $stmt = $conn->query("SELECT COUNT(DISTINCT cuit) as total FROM empresas WHERE cuit IS NOT NULL AND cuit != '' GROUP BY cuit HAVING COUNT(*) > 1");
-        $total = $stmt->rowCount();
-        if ($total > 0) $alertas[] = ['tipo' => 'empresas_cuit_duplicado', 'prioridad' => 'alta', 'titulo' => 'CUIT Duplicado', 'descripcion' => "Hay {$total} CUIT(s) duplicados", 'accion_url' => 'empresas.php'];
-    } catch (Exception $e) { error_log("Error Dashboard CUIT: " . $e->getMessage()); }
+        $stmt = $conn->query($sql);
+        $counts = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$counts) return $alertas;
 
-    // SUCURSALES
-    try {
-        if (columnaExiste($conn, 'sucursales', 'estado_aprobacion')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM sucursales WHERE (estado_aprobacion = 'pendiente' OR estado_aprobacion IS NULL) AND en_funcionamiento = 1");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'sucursales_pendientes_aprobacion', 'prioridad' => 'alta', 'titulo' => 'Sucursales Pendientes', 'descripcion' => "Hay {$total} sucursal(es) pendientes", 'accion_url' => 'sucursales.php?filtro_aprobacion=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Sucursales: " . $e->getMessage()); }
+        $hoy = date('Y-m-d');
 
-    try {
-        if (columnaExiste($conn, 'sucursales', 'fecha_pago_arancel')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM sucursales WHERE fecha_pago_arancel IS NOT NULL AND fecha_pago_arancel < DATE_SUB(NOW(), INTERVAL 380 DAY)");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'aranceles_vencidos', 'prioridad' => 'alta', 'titulo' => 'Aranceles Vencidos', 'descripcion' => "Hay {$total} sucursal(es) con arancel vencido", 'accion_url' => 'sucursales.php'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Aranceles: " . $e->getMessage()); }
+        // Closure para añadir alertas solo si el count > 0
+        $add = function($tipo, $count, $prioridad, $titulo, $desc, $url) use (&$alertas) {
+            if ($count > 0) {
+                $alertas[] = [
+                    'tipo' => $tipo,
+                    'prioridad' => $prioridad,
+                    'titulo' => $titulo,
+                    'descripcion' => sprintf($desc, $count),
+                    'accion_url' => $url
+                ];
+            }
+        };
 
-    try {
-        if (columnaExiste($conn, 'sucursales', 'estado_aprobacion')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM sucursales WHERE estado_aprobacion = 'rechazado'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'sucursales_rechazadas', 'prioridad' => 'alta', 'titulo' => 'Sucursales Rechazadas', 'descripcion' => "Hay {$total} sucursal(es) rechazadas", 'accion_url' => 'sucursales.php?filtro_aprobacion=rechazado'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Suc Rech: " . $e->getMessage()); }
+        $add('empresas_inactivas', $counts['empresas_inactivas'], 'alta', 'Empresas Inactivas', "Hay %d empresa(s) inactivas", 'empresas.php?search_estado=inactivas');
+        $add('empresas_sin_responsable', $counts['empresas_sin_responsable'], 'media', 'Empresas Sin Responsable', "Hay %d empresa(s) sin responsable", 'empresas.php');
+        $add('empresas_cuit_duplicado', $counts['empresas_cuit_duplicado'], 'alta', 'CUIT Duplicado', "Hay %d CUIT(s) duplicados", 'empresas.php');
+        $add('sucursales_pendientes_aprobacion', $counts['sucursales_pendientes_aprobacion'], 'alta', 'Sucursales Pendientes', "Hay %d sucursal(es) pendientes", 'sucursales.php?filtro_aprobacion=pendiente');
+        $add('aranceles_vencidos', $counts['aranceles_vencidos'], 'alta', 'Aranceles Vencidos', "Hay %d sucursal(es) con arancel vencido", 'sucursales.php');
+        $add('sucursales_rechazadas', $counts['sucursales_rechazadas'], 'alta', 'Sucursales Rechazadas', "Hay %d sucursal(es) rechazadas", 'sucursales.php?filtro_aprobacion=rechazado');
+        $add('doc_vencida', $counts['doc_vencida'], 'alta', 'Documentación Vencida', "Hay %d registro(s) con documentación vencida", 'personal.php?filtro_vencimiento=vencido');
+        $add('doc_por_vencer', $counts['doc_por_vencer'], 'media', 'Documentación por Vencer', "Hay %d registro(s) por vencer en 30 días", 'personal.php?filtro_vencimiento=proximo');
+        $add('personal_inactivo_sin_baja', $counts['personal_inactivo_sin_baja'], 'alta', 'Personal Inactivo Sin Baja', "Hay %d registro(s) sin baja formal", 'personal.php');
+        $add('documentos_pendientes_revision', $counts['documentos_pendientes_revision'], 'alta', 'Documentos Pendientes de Revisión', "Hay %d documento(s) pendiente(s) de aprobación", 'documentos_empresas.php?search_estado=pendiente');
+        $add('documentos_rechazados', $counts['documentos_rechazados'], 'media', 'Documentos Rechazados', "Hay %d documento(s) rechazado(s) en los últimos 7 días", 'documentos_empresas.php?search_estado=rechazado');
+        $add('documentos_sin_observaciones', $counts['documentos_sin_observaciones'], 'baja', 'Documentos Sin Motivación', "Hay %d documento(s) rechazados sin motivación", 'documentos_empresas.php?search_estado=rechazado');
+        $add('recursos_pendientes_aprobacion', $counts['recursos_pendientes_aprobacion'], 'alta', 'Recursos Pendientes', "Hay %d recurso(s) pendiente(s)", 'recursos.php?search_estado=pendiente');
+        $add('servicios_pendientes_aprobacion', $counts['servicios_pendientes_aprobacion'], 'alta', 'Servicios Pendientes', "Hay %d servicio(s) pendiente(s)", 'servicios.php?search_estado=pendiente');
+        $add('inspecciones_pendientes', $counts['inspecciones_pendientes'], 'media', 'Inspecciones Pendientes', "Hay %d inspección(es) pendiente(s)", 'inspecciones.php?search_estado=pendiente');
+        $add('inspecciones_programadas_hoy', $counts['inspecciones_programadas_hoy'], 'alta', 'Inspecciones Programadas para Hoy', "Hay %d inspección(es) programada(s) para hoy", 'inspecciones_programadas.php?filtro_fecha_desde=' . $hoy . '&filtro_fecha_hasta=' . $hoy);
+        $add('inspecciones_programadas_vencidas', $counts['inspecciones_programadas_vencidas'], 'alta', 'Inspecciones Programadas Vencidas', "Hay %d inspección(es) programada(s) vencida(s)", 'inspecciones_programadas.php?filtro_estado=vencida');
+        $add('inspecciones_programadas_pendientes', $counts['inspecciones_programadas_pendientes'], 'media', 'Inspecciones Programadas Próximas', "Hay %d inspección(es) programada(s) próximas", 'inspecciones_programadas.php?filtro_estado=pendiente');
+        $add('multas_pendientes', $counts['multas_pendientes'], 'media', 'Multas Pendientes', "Hay %d multa(s) pendientes de pago", 'inspecciones.php');
 
-    // PERSONAL
-    try {
-        if (columnaExiste($conn, 'personal', 'fecha_vencimiento')) {
-            $stmt = $conn->prepare("SELECT COUNT(*) as total FROM personal WHERE activo = TRUE AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento <= ?");
-            $stmt->execute([$hoy]);
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'doc_vencida', 'prioridad' => 'alta', 'titulo' => 'DocumentaciÃ³n Vencida', 'descripcion' => "Hay {$total} registro(s) con documentaciÃ³n vencida", 'accion_url' => 'personal.php?filtro_vencimiento=vencido'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Doc Venc: " . $e->getMessage()); }
+    } catch (PDOException $e) {
+        // Si alguna tabla/columna no existe aún (ej: migraciones pendientes), se loguea y retorna array vacío sin romper el dashboard
+        error_log("Error consolidado Dashboard Alertas: " . $e->getMessage());
+    }
 
-    try {
-        if (columnaExiste($conn, 'personal', 'fecha_vencimiento')) {
-            $stmt = $conn->prepare("SELECT COUNT(*) as total FROM personal WHERE activo = TRUE AND fecha_vencimiento IS NOT NULL AND fecha_vencimiento BETWEEN ? AND ?");
-            $stmt->execute([$hoy, $proximos_30_dias]);
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'doc_por_vencer', 'prioridad' => 'media', 'titulo' => 'DocumentaciÃ³n por Vencer', 'descripcion' => "Hay {$total} registro(s) por vencer en 30 dÃ­as", 'accion_url' => 'personal.php?filtro_vencimiento=proximo'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Doc Prox: " . $e->getMessage()); }
-
-    try {
-        if (columnaExiste($conn, 'personal', 'activo') && columnaExiste($conn, 'personal', 'baja')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM personal WHERE activo = FALSE AND baja = FALSE");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'personal_inactivo_sin_baja', 'prioridad' => 'alta', 'titulo' => 'Personal Inactivo Sin Baja', 'descripcion' => "Hay {$total} registro(s) sin baja formal", 'accion_url' => 'personal.php'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Pers Baja: " . $e->getMessage()); }
-
-    // DOCUMENTOS EMPRESAS
-    try {
-        if (columnaExiste($conn, 'documentos_sucursales', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM documentos_sucursales WHERE estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'documentos_pendientes_revision', 'prioridad' => 'alta', 'titulo' => 'Documentos Pendientes de RevisiÃ³n', 'descripcion' => "Hay {$total} documento(s) pendiente(s) de aprobaciÃ³n", 'accion_url' => 'documentos_empresas.php?search_estado=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Doc Emp: " . $e->getMessage()); }
-
-    try {
-        if (columnaExiste($conn, 'documentos_sucursales', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM documentos_sucursales WHERE estado = 'rechazado' AND fecha_revision >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'documentos_rechazados', 'prioridad' => 'media', 'titulo' => 'Documentos Rechazados', 'descripcion' => "Hay {$total} documento(s) rechazado(s) en los Ãºltimos 7 dÃ­as", 'accion_url' => 'documentos_empresas.php?search_estado=rechazado'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Doc Rech: " . $e->getMessage()); }
-
-    try {
-        if (columnaExiste($conn, 'documentos_sucursales', 'motivacion_rechazo')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM documentos_sucursales WHERE estado = 'rechazado' AND (motivacion_rechazo IS NULL OR motivacion_rechazo = '')");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'documentos_sin_observaciones', 'prioridad' => 'baja', 'titulo' => 'Documentos Sin MotivaciÃ³n', 'descripcion' => "Hay {$total} documento(s) rechazados sin motivaciÃ³n", 'accion_url' => 'documentos_empresas.php?search_estado=rechazado'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Doc Mot: " . $e->getMessage()); }
-
-    // RECURSOS
-    try {
-        if (columnaExiste($conn, 'recursos_sucursal', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM recursos_sucursal WHERE estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'recursos_pendientes_aprobacion', 'prioridad' => 'alta', 'titulo' => 'Recursos Pendientes', 'descripcion' => "Hay {$total} recurso(s) pendiente(s)", 'accion_url' => 'recursos.php?search_estado=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Rec: " . $e->getMessage()); }
-
-    // SERVICIOS
-    try {
-        if (columnaExiste($conn, 'servicios', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'servicios_pendientes_aprobacion', 'prioridad' => 'alta', 'titulo' => 'Servicios Pendientes', 'descripcion' => "Hay {$total} servicio(s) pendiente(s)", 'accion_url' => 'servicios.php?search_estado=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Serv: " . $e->getMessage()); }
-
-    // INSPECCIONES
-    try {
-        if (columnaExiste($conn, 'inspecciones', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM inspecciones WHERE estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'inspecciones_pendientes', 'prioridad' => 'media', 'titulo' => 'Inspecciones Pendientes', 'descripcion' => "Hay {$total} inspecciÃ³n(es) pendiente(s)", 'accion_url' => 'inspecciones.php?search_estado=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Insp: " . $e->getMessage()); }
-
-    // INSPECCIONES PROGRAMADAS
-    try {
-        if (tablaExiste($conn, 'inspecciones_programadas')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE fecha_programada = CURDATE() AND estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'inspecciones_programadas_hoy', 'prioridad' => 'alta', 'titulo' => 'Inspecciones Programadas para Hoy', 'descripcion' => "Hay {$total} inspecciÃ³n(es) programada(s) para hoy", 'accion_url' => 'inspecciones_programadas.php?filtro_fecha_desde=' . $hoy . '&filtro_fecha_hasta=' . $hoy];
-            
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE fecha_programada < CURDATE() AND estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'inspecciones_programadas_vencidas', 'prioridad' => 'alta', 'titulo' => 'Inspecciones Programadas Vencidas', 'descripcion' => "Hay {$total} inspecciÃ³n(es) programada(s) vencida(s)", 'accion_url' => 'inspecciones_programadas.php?filtro_estado=vencida'];
-            
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE fecha_programada > CURDATE() AND estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'inspecciones_programadas_pendientes', 'prioridad' => 'media', 'titulo' => 'Inspecciones Programadas PrÃ³ximas', 'descripcion' => "Hay {$total} inspecciÃ³n(es) programada(s) prÃ³ximas", 'accion_url' => 'inspecciones_programadas.php?filtro_estado=pendiente'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Insp Prog: " . $e->getMessage()); }
-
-    // INFORMES
-    try {
-        if (columnaExiste($conn, 'multas', 'estado')) {
-            $stmt = $conn->query("SELECT COUNT(*) as total FROM multas WHERE estado = 'pendiente'");
-            $total = $stmt->fetch()['total'] ?? 0;
-            if ($total > 0) $alertas[] = ['tipo' => 'multas_pendientes', 'prioridad' => 'media', 'titulo' => 'Multas Pendientes', 'descripcion' => "Hay {$total} multa(s) pendientes de pago", 'accion_url' => 'inspecciones.php'];
-        }
-    } catch (Exception $e) { error_log("Error Dashboard Multas: " . $e->getMessage()); }
-
-    // ORDENAR POR PRIORIDAD
+    // Mantener orden original por prioridad
     usort($alertas, function($a, $b) {
         $prioridad = ['alta' => 3, 'media' => 2, 'baja' => 1];
         return $prioridad[$b['prioridad']] - $prioridad[$a['prioridad']];
     });
+
     return $alertas;
 }
 
-// ==================== ESTADÃSTICAS GENERALES ====================
+
+// ==================== ESTADÍSTICAS GENERALES ====================
 $stats = [
-    'total_empresas' => 0, 'empresas_activas' => 0,
-    'total_personal' => 0, 'personal_activo' => 0,
-    'total_usuarios' => 0, 'usuarios_activos' => 0,
-    'alertas_pendientes' => 0, 'auditoria_hoy' => 0,
-    'inspecciones_programadas_total' => 0, 'inspecciones_programadas_pendientes' => 0, 
-    'inspecciones_programadas_realizadas' => 0, 'inspecciones_programadas_hoy' => 0
+'total_empresas' => 0, 'empresas_activas' => 0,
+'total_personal' => 0, 'personal_activo' => 0,
+'total_usuarios' => 0, 'usuarios_activos' => 0,
+'alertas_pendientes' => 0, 'auditoria_hoy' => 0,
+'inspecciones_programadas_total' => 0, 'inspecciones_programadas_pendientes' => 0,
+'inspecciones_programadas_realizadas' => 0, 'inspecciones_programadas_hoy' => 0
 ];
 try {
-    $stats['total_empresas'] = $conn->query("SELECT COUNT(*) as total FROM empresas")->fetch()['total'];
-    $stats['empresas_activas'] = $conn->query("SELECT COUNT(*) as total FROM empresas WHERE activo = TRUE")->fetch()['total'];
-    $stats['total_personal'] = $conn->query("SELECT COUNT(*) as total FROM personal")->fetch()['total'];
-    $stats['personal_activo'] = $conn->query("SELECT COUNT(*) as total FROM personal WHERE activo = TRUE")->fetch()['total'];
-    $stats['total_usuarios'] = $conn->query("SELECT COUNT(*) as total FROM usuarios")->fetch()['total'];
-    $stats['usuarios_activos'] = $conn->query("SELECT COUNT(*) as total FROM usuarios WHERE activo = TRUE")->fetch()['total'];
-    
-    if (tablaExiste($conn, 'inspecciones_programadas')) {
-        $stats['inspecciones_programadas_total'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas")->fetch()['total'];
-        $stats['inspecciones_programadas_pendientes'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE estado = 'pendiente'")->fetch()['total'];
-        $stats['inspecciones_programadas_realizadas'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE estado = 'realizada'")->fetch()['total'];
-        $stats['inspecciones_programadas_hoy'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE fecha_programada = CURDATE() AND estado = 'pendiente'")->fetch()['total'];
-    }
-} catch (PDOException $e) {
-    $error = "Error de carga: " . htmlspecialchars($e->getMessage());
-    error_log("Dashboard Stats Error: " . $e->getMessage());
+$stats['total_empresas'] = $conn->query("SELECT COUNT(*) as total FROM empresas")->fetch()['total'];
+$stats['empresas_activas'] = $conn->query("SELECT COUNT(*) as total FROM empresas WHERE activo = TRUE")->fetch()['total'];
+$stats['total_personal'] = $conn->query("SELECT COUNT(*) as total FROM personal")->fetch()['total'];
+$stats['personal_activo'] = $conn->query("SELECT COUNT(*) as total FROM personal WHERE activo = TRUE")->fetch()['total'];
+$stats['total_usuarios'] = $conn->query("SELECT COUNT(*) as total FROM usuarios")->fetch()['total'];
+$stats['usuarios_activos'] = $conn->query("SELECT COUNT(*) as total FROM usuarios WHERE activo = TRUE")->fetch()['total'];
+if (tablaExiste($conn, 'inspecciones_programadas')) {
+$stats['inspecciones_programadas_total'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas")->fetch()['total'];
+$stats['inspecciones_programadas_pendientes'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE estado = 'pendiente'")->fetch()['total'];
+$stats['inspecciones_programadas_realizadas'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE estado = 'realizada'")->fetch()['total'];
+$stats['inspecciones_programadas_hoy'] = $conn->query("SELECT COUNT(*) as total FROM inspecciones_programadas WHERE fecha_programada = CURDATE() AND estado = 'pendiente'")->fetch()['total'];
 }
-
+} catch (PDOException $e) {
+$error = "Error de carga: " . htmlspecialchars($e->getMessage());
+error_log("Dashboard Stats Error: " . $e->getMessage());
+}
 $alertas = obtenerAlertas($conn);
 $total_alertas = count($alertas);
-
 $alertas_por_modulo = [
-    'empresas' => 0, 'sucursales' => 0, 'personal' => 0, 'recursos' => 0, 
-    'servicios' => 0, 'inspecciones' => 0, 'inspecciones_programadas' => 0, 
-    'documentos' => 0, 'otros' => 0
+'empresas' => 0, 'sucursales' => 0, 'personal' => 0, 'recursos' => 0,
+'servicios' => 0, 'inspecciones' => 0, 'inspecciones_programadas' => 0,
+'documentos' => 0, 'otros' => 0
 ];
 foreach ($alertas as $alerta) {
-    $modulo = obtenerModuloAlerta($alerta['tipo']);
-    if (isset($alertas_por_modulo[$modulo])) $alertas_por_modulo[$modulo]++;
+$modulo = obtenerModuloAlerta($alerta['tipo']);
+if (isset($alertas_por_modulo[$modulo])) $alertas_por_modulo[$modulo]++;
 }
-
 try {
-    logAuditoria($conn, 'dashboard_visualizado', 'dashboard', null, ['usuario' => $user['username']]);
+logAuditoria($conn, 'dashboard_visualizado', 'dashboard', null, ['usuario' => $user['username']]);
 } catch (Exception $e) {
-    error_log("AuditorÃ­a Log Error: " . $e->getMessage());
+error_log("Auditoría Log Error: " . $e->getMessage());
 }
 ?>
 <!DOCTYPE html>
@@ -459,7 +364,7 @@ $color = obtenerColorPrioridad($alerta['prioridad']);
 </div>
 <?php endforeach; ?>
 <?php else: ?>
-<div class="alertas-empty"><i class="fas fa-check-circle"></i><h3>Â¡Excelente! No hay alertas pendientes</h3><p>El sistema no ha detectado ninguna situaciÃ³n que requiera atenciÃ³n inmediata.</p></div>
+<div class="alertas-empty"><i class="fas fa-check-circle"></i><h3>¡Excelente! No hay alertas pendientes</h3><p>El sistema no ha detectado ninguna situación que requiera atención inmediata.</p></div>
 <?php endif; ?>
 </div>
 </div>
@@ -468,12 +373,12 @@ $color = obtenerColorPrioridad($alerta['prioridad']);
 <div class="stat-card-modern stat-card-1"><div class="stat-icon"><i class="fas fa-building"></i></div><div class="stat-value"><?php echo $stats['total_empresas']; ?></div><div class="stat-label">Empresas Totales</div><div class="stat-trend up"><i class="fas fa-arrow-up"></i><span><?php echo $stats['empresas_activas']; ?> activas</span></div></div>
 <div class="stat-card-modern stat-card-2"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-value"><?php echo $stats['total_personal']; ?></div><div class="stat-label">Personal Registrado</div><div class="stat-trend up"><i class="fas fa-arrow-up"></i><span><?php echo $stats['personal_activo']; ?> activos</span></div></div>
 <div class="stat-card-modern stat-card-3"><div class="stat-icon"><i class="fas fa-user-shield"></i></div><div class="stat-value"><?php echo $stats['total_usuarios']; ?></div><div class="stat-label">Usuarios Sistema</div><div class="stat-trend up"><i class="fas fa-arrow-up"></i><span><?php echo $stats['usuarios_activos']; ?> activos</span></div></div>
-<div class="stat-card-modern stat-card-4"><div class="stat-icon"><i class="fas fa-bell"></i></div><div class="stat-value"><?php echo $total_alertas; ?></div><div class="stat-label">Alertas Totales</div><div class="stat-trend <?php echo $total_alertas > 0 ? 'down' : 'up'; ?>"><i class="fas fa-<?php echo $total_alertas > 0 ? 'exclamation-circle' : 'check-circle'; ?>"></i><span><?php echo $total_alertas > 0 ? 'Requieren atenciÃ³n' : 'Sin alertas'; ?></span></div></div>
+<div class="stat-card-modern stat-card-4"><div class="stat-icon"><i class="fas fa-bell"></i></div><div class="stat-value"><?php echo $total_alertas; ?></div><div class="stat-label">Alertas Totales</div><div class="stat-trend <?php echo $total_alertas > 0 ? 'down' : 'up'; ?>"><i class="fas fa-<?php echo $total_alertas > 0 ? 'exclamation-circle' : 'check-circle'; ?>"></i><span><?php echo $total_alertas > 0 ? 'Requieren atención' : 'Sin alertas'; ?></span></div></div>
 <?php if ($stats['inspecciones_programadas_total'] > 0): ?>
 <div class="stat-card-modern stat-card-7"><div class="stat-icon"><i class="fas fa-calendar-day"></i></div><div class="stat-value"><?php echo $stats['inspecciones_programadas_hoy']; ?></div><div class="stat-label">Inspecciones Hoy</div><div class="stat-trend <?php echo $stats['inspecciones_programadas_hoy'] > 0 ? 'down' : 'up'; ?>"><i class="fas fa-<?php echo $stats['inspecciones_programadas_hoy'] > 0 ? 'calendar-check' : 'check-circle'; ?>"></i><span><?php echo $stats['inspecciones_programadas_pendientes']; ?> pendientes</span></div></div>
 <?php endif; ?>
 </div>
-<h2 class="section-title-modern"><i class="fas fa-bolt"></i><span>Accesos RÃ¡pidos</span></h2>
+<h2 class="section-title-modern"><i class="fas fa-bolt"></i><span>Accesos Rápidos</span></h2>
 <div class="quick-actions">
 <a href="empresas.php" class="quick-action-card quick-action-1"><div class="icon"><i class="fas fa-building"></i></div><div class="label">Gestionar Empresas</div></a>
 <a href="personal.php" class="quick-action-card quick-action-2"><div class="icon"><i class="fas fa-users"></i></div><div class="label">Gestionar Personal</div></a>
@@ -482,8 +387,8 @@ $color = obtenerColorPrioridad($alerta['prioridad']);
 <a href="inspecciones_programadas.php" class="quick-action-card quick-action-7"><div class="icon"><i class="fas fa-calendar-check"></i></div><div class="label">Inspecciones Programadas</div></a>
 <a href="calendario_vencimientos.php" class="quick-action-card quick-action-8"><div class="icon"><i class="fas fa-calendar-alt"></i></div><div class="label">Calendario de Vencimientos</div></a>
 <a href="documentos_empresas.php" class="quick-action-card quick-action-5"><div class="icon"><i class="fas fa-file-contract"></i></div><div class="label">Documentos Empresas</div></a>
-<a href="auditoria.php" class="quick-action-card quick-action-6"><div class="icon"><i class="fas fa-clipboard-list"></i></div><div class="label">AuditorÃ­a</div></a>
-<a href="configuracion.php" class="quick-action-card quick-action-6"><div class="icon"><i class="fas fa-cog"></i></div><div class="label">ConfiguraciÃ³n</div></a>
+<a href="auditoria.php" class="quick-action-card quick-action-6"><div class="icon"><i class="fas fa-clipboard-list"></i></div><div class="label">Auditoría</div></a>
+<a href="configuracion.php" class="quick-action-card quick-action-6"><div class="icon"><i class="fas fa-cog"></i></div><div class="label">Configuración</div></a>
 </div>
 </div>
 </div>
@@ -491,17 +396,17 @@ $color = obtenerColorPrioridad($alerta['prioridad']);
 <script>
 document.querySelectorAll('.alert').forEach(alert => { setTimeout(() => new bootstrap.Alert(alert).close(), 5000); });
 function toggleAlertas() {
-    const header = document.getElementById('alertasHeader'), content = document.getElementById('alertasContent'), icon = document.getElementById('toggleIcon');
-    header.classList.toggle('collapsed'); content.classList.toggle('expanded');
-    icon.style.transform = content.classList.contains('expanded') ? 'rotate(0deg)' : 'rotate(-90deg)';
+const header = document.getElementById('alertasHeader'), content = document.getElementById('alertasContent'), icon = document.getElementById('toggleIcon');
+header.classList.toggle('collapsed'); content.classList.toggle('expanded');
+icon.style.transform = content.classList.contains('expanded') ? 'rotate(0deg)' : 'rotate(-90deg)';
 }
 function filterAlertas(filter) {
-    document.querySelectorAll('.alertas-filters .filter-btn').forEach(btn => btn.classList.remove('active'));
-    document.querySelector(`.filter-btn[data-filter="${filter}"]`).classList.add('active');
-    document.querySelectorAll('.alerta-item').forEach(item => {
-        if (filter === 'all' || item.dataset.module === filter) { item.style.display = 'block'; item.classList.add('show'); } 
-        else { item.style.display = 'none'; item.classList.remove('show'); }
-    });
+document.querySelectorAll('.alertas-filters .filter-btn').forEach(btn => btn.classList.remove('active'));
+document.querySelector(`.filter-btn[data-filter="${filter}"]`).classList.add('active');
+document.querySelectorAll('.alerta-item').forEach(item => {
+if (filter === 'all' || item.dataset.module === filter) { item.style.display = 'block'; item.classList.add('show'); }
+else { item.style.display = 'none'; item.classList.remove('show'); }
+});
 }
 </script>
 </body>
