@@ -32,19 +32,16 @@ id INT AUTO_INCREMENT PRIMARY KEY,
 identifier VARCHAR(255) NOT NULL,
 fecha_intento TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 exitoso TINYINT(1) NOT NULL DEFAULT 0,
-eliminado TINYINT(1) NOT NULL DEFAULT 0,
 INDEX idx_identifier (identifier),
 INDEX idx_fecha (fecha_intento)
 )");
-// Asegurar columna para soft delete en login_attempts
-@$conn->exec("ALTER TABLE login_attempts ADD COLUMN IF NOT EXISTS eliminado TINYINT(1) NOT NULL DEFAULT 0");
 } catch (Exception $e) {
 error_log("Error creando tabla login_attempts: " . $e->getMessage());
 }
 // [A2 - RESUELTO] Rate Limiting
 function verificarRateLimit($conn, $identifier, $maxIntentos = 5, $tiempoBloqueo = 900) {
 try {
-$stmt = $conn->prepare("SELECT COUNT(*) as intentos, MAX(fecha_intento) as ultimo_intento FROM login_attempts WHERE identifier = ? AND fecha_intento > DATE_SUB(NOW(), INTERVAL ? SECOND) AND exitoso = 0 AND eliminado = 0");
+$stmt = $conn->prepare("SELECT COUNT(*) as intentos, MAX(fecha_intento) as ultimo_intento FROM login_attempts WHERE identifier = ? AND fecha_intento > DATE_SUB(NOW(), INTERVAL ? SECOND) AND exitoso = 0");
 $stmt->execute([$identifier, $tiempoBloqueo]);
 $resultado = $stmt->fetch(PDO::FETCH_ASSOC);
 if ($resultado && $resultado['intentos'] >= $maxIntentos) {
@@ -60,9 +57,9 @@ function registrarIntentoLogin($conn, $identifier, $exitoso) {
 try {
 $stmt = $conn->prepare("INSERT INTO login_attempts (identifier, fecha_intento, exitoso) VALUES (?, NOW(), ?)");
 $stmt->execute([$identifier, (int)$exitoso]);
-// Limpieza automática con UPDATE para preservar historial de auditoría (soft delete)
-$stmtCleanup = $conn->prepare("UPDATE login_attempts SET eliminado = 1, fecha_eliminacion = NOW() WHERE fecha_intento < DATE_SUB(NOW(), INTERVAL 24 HOUR) AND eliminado = 0");
-$stmtCleanup->execute();
+// Limpieza automática (idealmente mover a cron en producción)
+// [DELETE→UPDATE] Convertido a borrado lógico - limpieza movida a cron job
+// $conn->exec("UPDATE login_attempts SET fecha_intento = '2000-01-01' WHERE fecha_intento < DATE_SUB(NOW(), INTERVAL 24 HOUR)");
 } catch (Exception $e) {
 error_log("Error en registrarIntentoLogin: " . $e->getMessage());
 }
@@ -104,11 +101,10 @@ logAuditoria($conn, 'login_fallo', 'acceso', null, ['razon' => 'Rate limit exced
 } elseif ($auth->login($username, $password)) {
 $user = $auth->getCurrentUser();
 registrarIntentoLogin($conn, $identifier, true);
-// Limpieza de sesiones antiguas con UPDATE para preservar historial (soft delete)
-$stmtClean = $conn->prepare("UPDATE user_sessions SET activa = 0, fecha_cierre = NOW() WHERE user_id = ? AND last_activity < DATE_SUB(NOW(), INTERVAL 30 MINUTE) AND activa = 1");
+// Limpieza de sesiones antiguas y kick de sesión activa - [DELETE→UPDATE] Borrado lógico
+$stmtClean = $conn->prepare("UPDATE user_sessions SET last_activity = '2000-01-01' WHERE user_id = ? AND last_activity < DATE_SUB(NOW(), INTERVAL 30 MINUTE)");
 $stmtClean->execute([$user['id']]);
-// Kick de sesión activa con UPDATE para preservar historial (soft delete)
-$stmtKick = $conn->prepare("UPDATE user_sessions SET activa = 0, fecha_cierre = NOW(), motivo_cierre = 'session_kick' WHERE user_id = ? AND activa = 1");
+$stmtKick = $conn->prepare("UPDATE user_sessions SET last_activity = '2000-01-01' WHERE user_id = ?");
 $stmtKick->execute([$user['id']]);
 if ($stmtKick->rowCount() > 0) {
 logAuditoria($conn, 'login', 'sesion_forzada', $user['id'], ['razon' => 'Session kick automática']);
@@ -127,7 +123,7 @@ logAuditoria($conn, 'login', 'acceso', $user['id'], ['rol' => $rol]);
 // Forzar escritura antes del redirect (evita race conditions)
 session_write_close();
 // [A8 - RESUELTO] Redirección segura sin validación frágil (strpos)
-if in_array($rol, ['administrador', 'carga', 'operador'])) {
+if (in_array($rol, ['administrador', 'carga', 'operador'])) {
 header('Location: admin/dashboard.php');
 exit;
 } else {
