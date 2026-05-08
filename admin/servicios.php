@@ -20,18 +20,25 @@ $conn->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $success = $_SESSION['success'] ?? '';
 $error = $_SESSION['error'] ?? '';
 unset($_SESSION['success'], $_SESSION['error']);
-// ==================== VERIFICAR COLUMNAS ====================
-$columnCheckPDF = $conn->query("SHOW COLUMNS FROM servicios LIKE 'pdf_file'")->fetch();
-$hasPDF = !empty($columnCheckPDF);
-// ==================== VERIFICAR COLUMNA PRIORIDAD ====================
-$columnCheckPrioridad = $conn->query("SHOW COLUMNS FROM servicios LIKE 'prioridad'")->fetch();
-$hasPrioridad = !empty($columnCheckPrioridad);
-// ==================== VERIFICAR COLUMNA ESTADO_UPDATED_AT ====================
-$columnCheckEstadoUpdated = $conn->query("SHOW COLUMNS FROM servicios LIKE 'estado_updated_at'")->fetch();
-$hasEstadoUpdated = !empty($columnCheckEstadoUpdated);
-// ==================== VERIFICAR COLUMNA APROBADO_POR ====================
-$columnCheckAprobadoPor = $conn->query("SHOW COLUMNS FROM servicios LIKE 'aprobado_por'")->fetch();
-$hasAprobadoPor = !empty($columnCheckAprobadoPor);
+
+// ==================== FUNCIÓN CON CACHE PARA VERIFICAR COLUMNAS (O4) ====================
+function columnaExisteCache($conn, $tabla, $columna) {
+    static $cache = [];
+    $key = "{$tabla}.{$columna}";
+    if (!isset($cache[$key])) {
+        $stmt = $conn->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?");
+        $stmt->execute([$tabla, $columna]);
+        $cache[$key] = (bool) $stmt->fetchColumn();
+    }
+    return $cache[$key];
+}
+
+// ==================== VERIFICAR COLUMNAS CON CACHE (O4) ====================
+$hasPDF = columnaExisteCache($conn, 'servicios', 'pdf_file');
+$hasPrioridad = columnaExisteCache($conn, 'servicios', 'prioridad');
+$hasEstadoUpdated = columnaExisteCache($conn, 'servicios', 'estado_updated_at');
+$hasAprobadoPor = columnaExisteCache($conn, 'servicios', 'aprobado_por');
+
 // ==================== PROCESAR FORMULARIOS ====================
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
 $action = $_POST['action'];
@@ -50,6 +57,14 @@ throw new Exception('Servicio no encontrado');
 }
 if ($servicio['estado'] !== 'pendiente') {
 throw new Exception('El servicio ya no está en estado pendiente');
+}
+// B1: Validar empresa_id contra BD si el servicio tiene empresa asociada
+if (!empty($servicio['empresa_id'])) {
+    $stmt_validar = $conn->prepare("SELECT id FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1");
+    $stmt_validar->execute([$servicio['empresa_id']]);
+    if (!$stmt_validar->fetch()) {
+        throw new Exception('La empresa asociada a este servicio no es válida o está inactiva');
+    }
 }
 $datos_antiguos = [
 'estado' => $servicio['estado'],
@@ -89,6 +104,14 @@ throw new Exception('Servicio no encontrado');
 if ($servicio['estado'] !== 'pendiente') {
 throw new Exception('El servicio ya no está en estado pendiente');
 }
+// B1: Validar empresa_id contra BD
+if (!empty($servicio['empresa_id'])) {
+    $stmt_validar = $conn->prepare("SELECT id FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1");
+    $stmt_validar->execute([$servicio['empresa_id']]);
+    if (!$stmt_validar->fetch()) {
+        throw new Exception('La empresa asociada a este servicio no es válida o está inactiva');
+    }
+}
 $datos_antiguos = [
 'estado' => $servicio['estado'],
 'updated_at' => date('Y-m-d H:i:s')
@@ -125,18 +148,33 @@ $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
 $sucursal_id = !empty($_POST['sucursal_id']) ? (int)$_POST['sucursal_id'] : null;
 $domicilio = trim($_POST['domicilio'] ?? '');
 $jurisdiccion = trim($_POST['jurisdiccion'] ?? '');
-$columnCheck = $conn->query("SHOW COLUMNS FROM servicios LIKE 'hora_inicio'")->fetch();
+
+// B1: Validar empresa_id contra BD si se proporciona
+if ($empresa_id) {
+    $stmt_validar = $conn->prepare("SELECT id FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1");
+    $stmt_validar->execute([$empresa_id]);
+    if (!$stmt_validar->fetch()) {
+        throw new Exception('La empresa seleccionada no es válida o está inactiva');
+    }
+}
+
+$columnCheck = columnaExisteCache($conn, 'servicios', 'hora_inicio');
 $hasHorarios = !empty($columnCheck);
 $hora_inicio = $hasHorarios && !empty($_POST['hora_inicio']) ? $_POST['hora_inicio'] : null;
 $hora_fin = $hasHorarios && !empty($_POST['hora_fin']) ? $_POST['hora_fin'] : null;
 $dias_semana = $hasHorarios && isset($_POST['dias_semana']) ? implode(',', $_POST['dias_semana']) : null;
 $personal_id = $hasHorarios && !empty($_POST['personal_id']) ? (int)$_POST['personal_id'] : null;
-// ==================== SUBIDA DE PDF ====================
+
+// ==================== SUBIDA DE PDF CON VALIDACIÓN MIME REAL (A3) ====================
 $pdf_file = null;
 if ($hasPDF && isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
 $allowed_types = ['application/pdf'];
 $max_size = 5 * 1024 * 1024;
-if (!in_array($_FILES['pdf_file']['type'], $allowed_types)) {
+// A3: Validación real del MIME type usando finfo_file en lugar de $_FILES['type']
+$finfo = finfo_open(FILEINFO_MIME_TYPE);
+$mime = finfo_file($finfo, $_FILES['pdf_file']['tmp_name']);
+finfo_close($finfo);
+if (!in_array($mime, $allowed_types)) {
 throw new Exception('Solo se permiten archivos PDF');
 }
 if ($_FILES['pdf_file']['size'] > $max_size) {
@@ -153,6 +191,7 @@ if (!move_uploaded_file($_FILES['pdf_file']['tmp_name'], $file_path)) {
 throw new Exception('Error al subir el archivo PDF');
 }
 }
+
 // ✅ INSERT
 if ($hasHorarios) {
 if ($hasPDF && $pdf_file) {
@@ -231,13 +270,15 @@ logAuditoria($conn, 'servicio_creado', 'servicios', $new_id, [
 'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN'
 ]);
 $_SESSION['success'] = 'Servicio creado correctamente' . ($pdf_file ? ' con PDF' : '');
+
 // ==================== ACTUALIZAR SERVICIO ====================
 } elseif ($action === 'update') {
 $id = isset($_POST['id']) && is_numeric($_POST['id']) ? (int)$_POST['id'] : null;
 if (!$id || $id <= 0) {
 throw new Exception('ID de servicio no válido: ' . ($_POST['id'] ?? 'null'));
 }
-$stmt = $conn->prepare("SELECT * FROM servicios WHERE id = ?");
+// O3: Reemplazar SELECT * por columnas explícitas
+$stmt = $conn->prepare("SELECT id, nombre, descripcion, tipo, prioridad, estado, fecha_inicio, fecha_fin, hora_inicio, hora_fin, dias_semana, personal_id, empresa_id, sucursal_id, domicilio, jurisdiccion, pdf_file, estado_updated_at, aprobado_por, created_at, updated_at FROM servicios WHERE id = ?");
 $stmt->execute([$id]);
 $servicio_anterior = $stmt->fetch(PDO::FETCH_ASSOC);
 if (!$servicio_anterior) {
@@ -254,20 +295,35 @@ $empresa_id = !empty($_POST['empresa_id']) ? (int)$_POST['empresa_id'] : null;
 $sucursal_id = !empty($_POST['sucursal_id']) ? (int)$_POST['sucursal_id'] : null;
 $domicilio = trim($_POST['domicilio'] ?? '');
 $jurisdiccion = trim($_POST['jurisdiccion'] ?? '');
-$columnCheck = $conn->query("SHOW COLUMNS FROM servicios LIKE 'hora_inicio'")->fetch();
+
+// B1: Validar empresa_id contra BD si se proporciona y es diferente al anterior
+if ($empresa_id && $empresa_id !== ($servicio_anterior['empresa_id'] ?? null)) {
+    $stmt_validar = $conn->prepare("SELECT id FROM empresas WHERE id = ? AND activo = TRUE LIMIT 1");
+    $stmt_validar->execute([$empresa_id]);
+    if (!$stmt_validar->fetch()) {
+        throw new Exception('La empresa seleccionada no es válida o está inactiva');
+    }
+}
+
+$columnCheck = columnaExisteCache($conn, 'servicios', 'hora_inicio');
 $hasHorarios = !empty($columnCheck);
 $hora_inicio = $hasHorarios && !empty($_POST['hora_inicio']) ? $_POST['hora_inicio'] : null;
 $hora_fin = $hasHorarios && !empty($_POST['hora_fin']) ? $_POST['hora_fin'] : null;
 $dias_semana = $hasHorarios && isset($_POST['dias_semana']) ? implode(',', $_POST['dias_semana']) : null;
 $personal_id = $hasHorarios && !empty($_POST['personal_id']) ? (int)$_POST['personal_id'] : null;
-// ==================== SUBIDA DE PDF (ACTUALIZAR) ====================
+
+// ==================== SUBIDA DE PDF CON VALIDACIÓN MIME REAL (A3) ====================
 $pdf_file = null;
 $pdf_update = "";
 $pdf_anterior = $servicio_anterior['pdf_file'] ?? null;
 if ($hasPDF && isset($_FILES['pdf_file']) && $_FILES['pdf_file']['error'] === UPLOAD_ERR_OK) {
 $allowed_types = ['application/pdf'];
 $max_size = 5 * 1024 * 1024;
-if (!in_array($_FILES['pdf_file']['type'], $allowed_types)) {
+// A3: Validación real del MIME type usando finfo_file
+$finfo = finfo_open(FILEINFO_MIME_TYPE);
+$mime = finfo_file($finfo, $_FILES['pdf_file']['tmp_name']);
+finfo_close($finfo);
+if (!in_array($mime, $allowed_types)) {
 throw new Exception('Solo se permiten archivos PDF');
 }
 if ($_FILES['pdf_file']['size'] > $max_size) {
@@ -335,7 +391,8 @@ $params[] = $pdf_file;
 $params[] = $id;
 $stmt->execute($params);
 }
-$stmt = $conn->prepare("SELECT * FROM servicios WHERE id = ?");
+// O3: Reemplazar SELECT * por columnas explícitas
+$stmt = $conn->prepare("SELECT id, nombre, descripcion, tipo, prioridad, estado, fecha_inicio, fecha_fin, hora_inicio, hora_fin, dias_semana, personal_id, empresa_id, sucursal_id, domicilio, jurisdiccion, pdf_file, estado_updated_at, aprobado_por, created_at, updated_at FROM servicios WHERE id = ?");
 $stmt->execute([$id]);
 $servicio_nuevo = $stmt->fetch(PDO::FETCH_ASSOC);
 $excluir = ['id', 'created_at', 'updated_at'];
@@ -355,13 +412,15 @@ logAuditoria($conn, 'servicio_actualizado', 'servicios', $id, [
 'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN'
 ]);
 $_SESSION['success'] = 'Servicio actualizado correctamente' . ($pdf_file ? ' con nuevo PDF' : '');
-// ==================== ELIMINAR SERVICIO ====================
+
+// ==================== ELIMINAR SERVICIO (BORRADO LÓGICO) ====================
 } elseif ($action === 'delete') {
 $id = $_POST['id'] ?? $_GET['id'] ?? null;
 if (!$id) {
 throw new Exception('ID de servicio no válido');
 }
-$stmt = $conn->prepare("SELECT * FROM servicios WHERE id = ?");
+// O3: Reemplazar SELECT * por columnas explícitas
+$stmt = $conn->prepare("SELECT id, nombre, tipo, estado, empresa_id, sucursal_id, pdf_file FROM servicios WHERE id = ?");
 $stmt->execute([$id]);
 $servicio_a_eliminar = $stmt->fetch(PDO::FETCH_ASSOC);
 $pdf_eliminado = false;
@@ -372,7 +431,8 @@ unlink('../uploads/servicios/' . $pdf_file);
 $pdf_eliminado = true;
 }
 }
-$stmt = $conn->prepare("DELETE FROM servicios WHERE id = ?");
+// DELETE → UPDATE: Borrado lógico con columna activo
+$stmt = $conn->prepare("UPDATE servicios SET activo = 0 WHERE id = ?");
 $stmt->execute([$id]);
 logAuditoria($conn, 'servicio_eliminado', 'servicios', $id, [
 'nombre' => $servicio_a_eliminar['nombre'] ?? 'Desconocido',
@@ -384,7 +444,7 @@ logAuditoria($conn, 'servicio_eliminado', 'servicios', $id, [
 'pdf_nombre' => $servicio_a_eliminar['pdf_file'] ?? null,
 'usuario_eliminador' => $user['nombre'] ?? 'Desconocido',
 'ip_address' => $_SERVER['REMOTE_ADDR'] ?? 'UNKNOWN',
-'motivo' => 'Eliminación manual desde interfaz'
+'motivo' => 'Eliminación manual desde interfaz (borrado lógico)'
 ]);
 $_SESSION['success'] = 'Servicio eliminado correctamente';
 }
@@ -412,8 +472,10 @@ $search_tipo = $_GET['search_tipo'] ?? 'todos';
 $where_clauses = [];
 $params = [];
 if (!empty($search_servicio)) {
+// A6: Escapar caracteres wildcard en LIKE
+$search_servicio_escaped = addcslashes($search_servicio, '%_');
 $where_clauses[] = "s.nombre LIKE ?";
-$params[] = '%' . $search_servicio . '%';
+$params[] = '%' . $search_servicio_escaped . '%';
 }
 if (!empty($search_empresa)) {
 $where_clauses[] = "s.empresa_id = ?";
@@ -432,7 +494,7 @@ $where_clauses[] = "s.tipo = ?";
 $params[] = $search_tipo;
 }
 $where_sql = !empty($where_clauses) ? "WHERE " . implode(" AND ", $where_clauses) : "";
-$columnCheck = $conn->query("SHOW COLUMNS FROM servicios LIKE 'hora_inicio'")->fetch();
+$columnCheck = columnaExisteCache($conn, 'servicios', 'hora_inicio');
 $hasHorarios = !empty($columnCheck);
 if ($hasHorarios) {
 $stmt = $conn->prepare("
@@ -567,13 +629,15 @@ return $current_direction === 'ASC' ? '<i class="fas fa-sort-up text-primary"></
 }
 // ==================== OBTENER DATOS ====================
 try {
-$columnCheck = $conn->query("SHOW COLUMNS FROM servicios LIKE 'hora_inicio'")->fetch();
+$columnCheck = columnaExisteCache($conn, 'servicios', 'hora_inicio');
 $hasHorarios = !empty($columnCheck);
 $where_clauses = [];
 $params = [];
 if (!empty($search_servicio)) {
+// A6: Escapar caracteres wildcard en LIKE
+$search_servicio_escaped = addcslashes($search_servicio, '%_');
 $where_clauses[] = "s.nombre LIKE ?";
-$params[] = '%' . $search_servicio . '%';
+$params[] = '%' . $search_servicio_escaped . '%';
 }
 if (!empty($search_empresa)) {
 $where_clauses[] = "s.empresa_id = ?";
@@ -597,6 +661,7 @@ SELECT COUNT(DISTINCT s.id) as total
 FROM servicios s
 LEFT JOIN empresas e ON s.empresa_id = e.id
 LEFT JOIN sucursales suc ON s.sucursal_id = suc.id
+WHERE s.activo = TRUE
 $where_sql
 ");
 $count_stmt->execute($params);
@@ -620,6 +685,7 @@ LEFT JOIN empresas e ON s.empresa_id = e.id
 LEFT JOIN sucursales suc ON s.sucursal_id = suc.id
 LEFT JOIN personal p ON s.personal_id = p.id
 LEFT JOIN usuarios u ON s.aprobado_por = u.id
+WHERE s.activo = TRUE
 $where_sql
 ORDER BY $order_column $order_direction
 LIMIT $records_per_page OFFSET $offset
@@ -642,6 +708,7 @@ FROM servicios s
 LEFT JOIN empresas e ON s.empresa_id = e.id
 LEFT JOIN sucursales suc ON s.sucursal_id = suc.id
 LEFT JOIN usuarios u ON s.aprobado_por = u.id
+WHERE s.activo = TRUE
 $where_sql
 ORDER BY $order_column $order_direction
 LIMIT $records_per_page OFFSET $offset
@@ -661,10 +728,10 @@ logAuditoria($conn, 'listado_visualizado', 'servicios', null, [
 'pagina' => $page,
 'usuario' => $user['nombre'] ?? 'Desconocido'
 ]);
-$stmt = $conn->query("SELECT id, nombre FROM empresas ORDER BY nombre");
+$stmt = $conn->query("SELECT id, nombre FROM empresas WHERE activo = TRUE ORDER BY nombre");
 $empresas = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $total_empresas = count($empresas);
-$stmt = $conn->query("SELECT id, nombre, empresa_id FROM sucursales ORDER BY nombre");
+$stmt = $conn->query("SELECT id, nombre, empresa_id FROM sucursales WHERE activo = TRUE ORDER BY nombre");
 $sucursales = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $total_sucursales = count($sucursales);
 $sucursales_por_empresa = [];
@@ -677,13 +744,13 @@ $sucursales_por_empresa[$empresa_id][] = $sucursal;
 }
 $stmt = $conn->query("SELECT id, nombre, cargo FROM personal WHERE activo = TRUE ORDER BY nombre");
 $personal_list = $stmt->fetchAll(PDO::FETCH_ASSOC);
-$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios");
+$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE activo = TRUE");
 $total_servicios = $stmt->fetch()['total'];
-$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'activo'");
+$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'activo' AND activo = TRUE");
 $servicios_activos = $stmt->fetch()['total'];
-$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'completado'");
+$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'completado' AND activo = TRUE");
 $servicios_completados = $stmt->fetch()['total'];
-$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'pendiente'");
+$stmt = $conn->query("SELECT COUNT(*) as total FROM servicios WHERE estado = 'pendiente' AND activo = TRUE");
 $servicios_pendientes = $stmt->fetch()['total'];
 } catch (PDOException $e) {
 $error = "Error al cargar los datos: " . $e->getMessage();

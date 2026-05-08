@@ -55,73 +55,70 @@ $stmt_log->execute([
 }
 // 6. Verificar/actualizar estructura de la tabla sucursales - COMPROBACIÓN AUTOMÁTICA DE REGISTROS
 try {
-    // Verificar que la tabla sucursales existe
-    $stmt_check_table = $conn->query("SHOW TABLES LIKE 'sucursales'");
-    if ($stmt_check_table && $stmt_check_table->rowCount() > 0) {
-        // Columnas requeridas según el esquema actual de sucursales.php
-        $required_columns = [
-            'id', 'empresa_id', 'nombre', 'domicilio', 'localidad', 'fecha_habilitacion',
-            'telefono', 'email', 'responsable_id', 'responsable_nombre', 'pago_arancel',
-            'fecha_pago_arancel', 'cupon_pago', 'en_funcionamiento', 'jurisdiccion',
-            'fecha_habilitacion_jp', 'numero_resolucion', 'fecha_resolucion',
-            'pdf_resolucion', 'pdf_sucursal', 'renar', 'certificado_cumplimiento',
-            'habilitacion_comercial', 'activa', 'estado_aprobacion', 'fecha_solicitud',
-            'aprobador_id', 'observaciones_aprobacion', 'fecha_aprobacion',
-            'fotos_uniforme', 'fotos_vehiculos', 'fecha_carga_fotos',
-            'tiene_protocolos', 'tiene_art', 'tiene_seguro_rc',
-            'sumarios_administrativos', 'sanciones_aplicadas', 'estado_judicial',
-            'infracciones_leves', 'infracciones_graves', 'infracciones_muy_graves',
-            'fecha_ultima_infraccion', 'observaciones_antecedentes',
-            'created_at', 'updated_at'
-        ];
-        
-        // Obtener columnas existentes
-        $stmt = $conn->query("DESCRIBE sucursales");
-        $existing_columns = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'Field');
-        
-        // Agregar columnas faltantes
-        foreach ($required_columns as $col) {
-            if (!in_array($col, $existing_columns)) {
-                $alter_query = "ALTER TABLE sucursales ADD COLUMN $col ";
-                if ($col === 'id') {
-                    $alter_query .= "INT AUTO_INCREMENT PRIMARY KEY FIRST";
-                } elseif (in_array($col, ['empresa_id', 'responsable_id', 'aprobador_id', 'infracciones_leves', 'infracciones_graves', 'infracciones_muy_graves'])) {
-                    $alter_query .= "INT DEFAULT NULL";
-                } elseif (in_array($col, ['activa', 'pago_arancel', 'en_funcionamiento', 'renar', 'certificado_cumplimiento', 'habilitacion_comercial', 'tiene_protocolos', 'tiene_art', 'tiene_seguro_rc'])) {
-                    $alter_query .= "TINYINT(1) DEFAULT 0";
-                } elseif (strpos($col, 'fecha') !== false || in_array($col, ['created_at', 'updated_at'])) {
-                    $alter_query .= "DATETIME DEFAULT NULL";
-                } elseif (in_array($col, ['observaciones_aprobacion', 'sumarios_administrativos', 'sanciones_aplicadas', 'observaciones_antecedentes', 'estado_judicial'])) {
-                    $alter_query .= "TEXT DEFAULT NULL";
-                } else {
-                    $alter_query .= "VARCHAR(255) DEFAULT NULL";
-                }
-                $conn->exec($alter_query);
-                logAuditoria($conn, 'ACTUALIZACION_ESTRUCTURA_SUCURSALES', 'sucursales', null, ['columna_agregada' => $col, 'query' => $alter_query], $user['id'] ?? null);
-            }
-        }
-        
-        // Verificar índices esenciales
-        $indexes_required = ['empresa_id', 'responsable_id', 'estado_aprobacion', 'activa'];
-        $stmt_indexes = $conn->query("SHOW INDEX FROM sucursales");
-        $existing_indexes = array_column($stmt_indexes->fetchAll(PDO::FETCH_ASSOC), 'Key_name');
-        
-        foreach ($indexes_required as $idx_col) {
-            $idx_name = 'idx_' . $idx_col;
-            if (!in_array($idx_name, $existing_indexes) && !in_array($idx_col, $existing_indexes)) {
-                try {
-                    $conn->exec("ALTER TABLE sucursales ADD INDEX $idx_name ($idx_col)");
-                    logAuditoria($conn, 'CREACION_INDICE_SUCURSALES', 'sucursales', null, ['indice' => $idx_name, 'columna' => $idx_col], $user['id'] ?? null);
-                } catch(PDOException $e) {
-                    error_log("Índice ya existe o error: $idx_col - " . $e->getMessage());
-                }
-            }
-        }
-    }
+// Verificar que la tabla sucursales existe
+$stmt_check_table = $conn->query("SHOW TABLES LIKE 'sucursales'");
+if ($stmt_check_table && $stmt_check_table->rowCount() > 0) {
+// Columnas requeridas según el esquema actual de sucursales.php
+$required_columns = [
+'id', 'empresa_id', 'nombre', 'domicilio', 'localidad', 'fecha_habilitacion',
+'telefono', 'email', 'responsable_id', 'responsable_nombre', 'pago_arancel',
+'fecha_pago_arancel', 'cupon_pago', 'en_funcionamiento', 'jurisdiccion',
+'fecha_habilitacion_jp', 'numero_resolucion', 'fecha_resolucion',
+'pdf_resolucion', 'pdf_sucursal', 'renar', 'certificado_cumplimiento',
+'habilitacion_comercial', 'activa', 'estado_aprobacion', 'fecha_solicitud',
+'aprobador_id', 'observaciones_aprobacion', 'fecha_aprobacion',
+'fotos_uniforme', 'fotos_vehiculos', 'fecha_carga_fotos',
+'tiene_protocolos', 'tiene_art', 'tiene_seguro_rc',
+'sumarios_administrativos', 'sanciones_aplicadas', 'estado_judicial',
+'infracciones_leves', 'infracciones_graves', 'infracciones_muy_graves',
+'fecha_ultima_infraccion', 'observaciones_antecedentes',
+'ultimos_informes_enviados',
+'created_at', 'updated_at'
+];
+// Obtener columnas existentes
+$stmt = $conn->query("DESCRIBE sucursales");
+$existing_columns = array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'Field');
+// Agregar columnas faltantes
+foreach ($required_columns as $col) {
+if (!in_array($col, $existing_columns)) {
+$alter_query = "ALTER TABLE sucursales ADD COLUMN $col ";
+if ($col === 'id') {
+$alter_query .= "INT AUTO_INCREMENT PRIMARY KEY FIRST";
+} elseif (in_array($col, ['empresa_id', 'responsable_id', 'aprobador_id', 'infracciones_leves', 'infracciones_graves', 'infracciones_muy_graves'])) {
+$alter_query .= "INT DEFAULT NULL";
+} elseif (in_array($col, ['activa', 'pago_arancel', 'en_funcionamiento', 'renar', 'certificado_cumplimiento', 'habilitacion_comercial', 'tiene_protocolos', 'tiene_art', 'tiene_seguro_rc', 'ultimos_informes_enviados'])) {
+$alter_query .= "TINYINT(1) DEFAULT 0";
+} elseif (strpos($col, 'fecha') !== false || in_array($col, ['created_at', 'updated_at'])) {
+$alter_query .= "DATETIME DEFAULT NULL";
+} elseif (in_array($col, ['observaciones_aprobacion', 'sumarios_administrativos', 'sanciones_aplicadas', 'observaciones_antecedentes', 'estado_judicial'])) {
+$alter_query .= "TEXT DEFAULT NULL";
+} else {
+$alter_query .= "VARCHAR(255) DEFAULT NULL";
+}
+$conn->exec($alter_query);
+logAuditoria($conn, 'ACTUALIZACION_ESTRUCTURA_SUCURSALES', 'sucursales', null, ['columna_agregada' => $col, 'query' => $alter_query], $user['id'] ?? null);
+}
+}
+// Verificar índices esenciales
+$indexes_required = ['empresa_id', 'responsable_id', 'estado_aprobacion', 'activa'];
+$stmt_indexes = $conn->query("SHOW INDEX FROM sucursales");
+$existing_indexes = array_column($stmt_indexes->fetchAll(PDO::FETCH_ASSOC), 'Key_name');
+foreach ($indexes_required as $idx_col) {
+$idx_name = 'idx_' . $idx_col;
+if (!in_array($idx_name, $existing_indexes) && !in_array($idx_col, $existing_indexes)) {
+try {
+$conn->exec("ALTER TABLE sucursales ADD INDEX $idx_name ($idx_col)");
+logAuditoria($conn, 'CREACION_INDICE_SUCURSALES', 'sucursales', null, ['indice' => $idx_name, 'columna' => $idx_col], $user['id'] ?? null);
 } catch(PDOException $e) {
-    error_log("Error al verificar estructura de sucursales: " . $e->getMessage());
+error_log("Índice ya existe o error: $idx_col - " . $e->getMessage());
+}
+}
+}
+}
+} catch(PDOException $e) {
+error_log("Error al verificar estructura de sucursales: " . $e->getMessage());
 } catch(Exception $e) {
-    error_log("Error genérico en verificación de sucursales: " . $e->getMessage());
+error_log("Error genérico en verificación de sucursales: " . $e->getMessage());
 }
 } catch(PDOException $e) {
 error_log("Error en inicialización automática de registros: " . $e->getMessage());
@@ -760,6 +757,8 @@ $pdf->Cell(0, 6, '  Habilitacion Comercial: ' . ($sucursal['habilitacion_comerci
 $pdf->Cell(0, 6, '  Protocolos: ' . (!empty($sucursal['tiene_protocolos']) ? 'Presente' : 'No Presente'), 0, 1, 'L');
 $pdf->Cell(0, 6, '  ART (Aseguradora de Riesgos del Trabajo): ' . (!empty($sucursal['tiene_art']) ? 'Presente' : 'No Presente'), 0, 1, 'L');
 $pdf->Cell(0, 6, '  Seguro de Responsabilidad Civil: ' . (!empty($sucursal['tiene_seguro_rc']) ? 'Presente' : 'No Presente'), 0, 1, 'L');
+// ✅ NUEVO: Informes enviados a sucursales de la empresa
+$pdf->Cell(0, 6, '  Últimos Informes Enviados a Sucursales: ' . (!empty($sucursal['ultimos_informes_enviados']) ? '✅ Sí' : '❌ No'), 0, 1, 'L');
 $pdf->Ln(3);
 $pdf->SetFont('Arial', 'B', 12);
 $pdf->SetFillColor(230, 250, 230);
@@ -1135,6 +1134,9 @@ $habilitacion_comercial = isset($_POST['habilitacion_comercial']) ? 1 : 0;
 $tiene_protocolos = isset($_POST['tiene_protocolos']) ? 1 : 0;
 $tiene_art = isset($_POST['tiene_art']) ? 1 : 0;
 $tiene_seguro_rc = isset($_POST['tiene_seguro_rc']) ? 1 : 0;
+// ✅ NUEVO CAMPO: ÚLTIMOS INFORMES ENVIADOS A SUCURSALES DE LA EMPRESA
+$ultimos_informes_enviados = isset($_POST['ultimos_informes_enviados']) ? 1 : 0;
+// ✅ FIN NUEVO CAMPO
 // ✅ NUEVOS CAMPOS: ANTECEDENTES DE LA EMPRESA
 $sumarios_administrativos = sanitizeInput($_POST['sumarios_administrativos'] ?? '');
 $sanciones_aplicadas = sanitizeInput($_POST['sanciones_aplicadas'] ?? '');
@@ -1291,6 +1293,7 @@ pdf_resolucion = :pdf_resolucion, pdf_sucursal = :pdf_sucursal, renar = :renar,
 certificado_cumplimiento = :certificado_cumplimiento, habilitacion_comercial = :habilitacion_comercial,
 activa = :activa, fotos_uniforme = :fotos_uniforme, fotos_vehiculos = :fotos_vehiculos,
 tiene_protocolos = :tiene_protocolos, tiene_art = :tiene_art, tiene_seguro_rc = :tiene_seguro_rc,
+ultimos_informes_enviados = :ultimos_informes_enviados,
 sumarios_administrativos = :sumarios_administrativos,
 sanciones_aplicadas = :sanciones_aplicadas,
 estado_judicial = :estado_judicial,
@@ -1316,6 +1319,7 @@ $stmt->execute([
 'habilitacion_comercial' => $habilitacion_comercial, 'activa' => $activa,
 'fotos_uniforme' => $fotos_uniforme_file, 'fotos_vehiculos' => $fotos_vehiculos_file,
 'tiene_protocolos' => $tiene_protocolos, 'tiene_art' => $tiene_art, 'tiene_seguro_rc' => $tiene_seguro_rc,
+'ultimos_informes_enviados' => $ultimos_informes_enviados,
 'sumarios_administrativos' => $sumarios_administrativos,
 'sanciones_aplicadas' => $sanciones_aplicadas,
 'estado_judicial' => $estado_judicial,
@@ -1341,6 +1345,7 @@ $detalles = [
 'cambio_fotos_uniforme' => !empty($fotos_uniforme_file) && $fotos_uniforme_file != ($sucursal_anterior['fotos_uniforme'] ?? '') ? 'subido' : 'sin cambio',
 'cambio_fotos_vehiculos' => !empty($fotos_vehiculos_file) && $fotos_vehiculos_file != ($sucursal_anterior['fotos_vehiculos'] ?? '') ? 'subido' : 'sin cambio',
 'cambio_activa' => $activa != $sucursal_anterior['activa'] ? 'cambiado' : 'sin cambio',
+'ultimos_informes_enviados' => $ultimos_informes_enviados,
 'tiene_protocolos' => $tiene_protocolos,
 'tiene_art' => $tiene_art,
 'tiene_seguro_rc' => $tiene_seguro_rc,
@@ -1362,6 +1367,7 @@ numero_resolucion, fecha_resolucion,
 pdf_resolucion, pdf_sucursal, renar, certificado_cumplimiento,
 habilitacion_comercial, activa, estado_aprobacion, fecha_solicitud, aprobador_id,
 fotos_uniforme, fotos_vehiculos, fecha_carga_fotos, tiene_protocolos, tiene_art, tiene_seguro_rc,
+ultimos_informes_enviados,
 sumarios_administrativos, sanciones_aplicadas, estado_judicial,
 infracciones_leves, infracciones_graves, infracciones_muy_graves,
 fecha_ultima_infraccion, observaciones_antecedentes)
@@ -1371,6 +1377,7 @@ VALUES (:empresa_id, :nombre, :domicilio, :localidad, :fecha_habilitacion, :tele
 :pdf_resolucion, :pdf_sucursal, :renar,
 :certificado_cumplimiento, :habilitacion_comercial, :activa, 'pendiente', NOW(), :aprobador_id,
 :fotos_uniforme, :fotos_vehiculos, NOW(), :tiene_protocolos, :tiene_art, :tiene_seguro_rc,
+:ultimos_informes_enviados,
 :sumarios_administrativos, :sanciones_aplicadas, :estado_judicial,
 :infracciones_leves, :infracciones_graves, :infracciones_muy_graves,
 :fecha_ultima_infraccion, :observaciones_antecedentes)
@@ -1394,6 +1401,7 @@ $stmt->execute([
 'tiene_protocolos' => $tiene_protocolos,
 'tiene_art' => $tiene_art,
 'tiene_seguro_rc' => $tiene_seguro_rc,
+'ultimos_informes_enviados' => $ultimos_informes_enviados,
 'sumarios_administrativos' => $sumarios_administrativos,
 'sanciones_aplicadas' => $sanciones_aplicadas,
 'estado_judicial' => $estado_judicial,
@@ -1421,6 +1429,7 @@ $detalles = [
 'fotos_vehiculos_subido' => !empty($fotos_vehiculos_file),
 'estado_aprobacion' => 'pendiente',
 'estado_activacion' => $activa ? 'activa' : 'inactiva',
+'ultimos_informes_enviados' => $ultimos_informes_enviados,
 'tiene_protocolos' => $tiene_protocolos,
 'tiene_art' => $tiene_art,
 'tiene_seguro_rc' => $tiene_seguro_rc,
@@ -2335,6 +2344,18 @@ value="<?php echo htmlspecialchars($sucursal_edit['fecha_resolucion'] ?? ''); ?>
 </label>
 </div>
 </div>
+<!-- ✅ NUEVO: ÚLTIMOS INFORMES ENVIADOS A SUCURSALES DE LA EMPRESA -->
+<div class="col-md-4">
+<div class="form-check form-switch">
+<input class="form-check-input" type="checkbox" name="ultimos_informes_enviados" id="ultimos_informes_enviados"
+<?php echo (!empty($sucursal_edit) && !empty($sucursal_edit['ultimos_informes_enviados'])) ? 'checked' : ''; ?>>
+<label class="form-check-label" for="ultimos_informes_enviados">
+<i class="fas fa-paper-plane"></i> Últimos Informes Enviados
+</label>
+</div>
+<small class="text-muted">Marcar si se enviaron los últimos informes a todas las sucursales de la empresa</small>
+</div>
+<!-- ✅ FIN NUEVO CAMPO -->
 <div class="col-md-6">
 <label class="form-label">Fecha de Pago de Arancel</label>
 <input type="date" name="fecha_pago_arancel" class="form-control fecha-pago-arancel"

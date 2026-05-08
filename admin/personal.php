@@ -460,7 +460,7 @@ $this->Cell(55,6,'Empresa',1,0,'L',true);
 $this->Cell(55,6,'Sucursal',1,0,'L',true);
 $this->Cell(15,6,'Estado',1,0,'C',true);
 $this->Cell(22,6,'Vencimiento',1,0,'C',true);
-$this->Cell(20,6,'Doc.',1,1,'C',true);
+
 }
 function Footer() {
 $this->SetY(-15);
@@ -479,8 +479,7 @@ $estado = $data['activo'] ? 'Activo' : 'Inactivo';
 $this->Cell(15,6,$estado,1,0,'C');
 $venc = $data['fecha_vencimiento'] ? date('d/m/Y',strtotime($data['fecha_vencimiento'])) : '-';
 $this->Cell(22,6,$venc,1,0,'C');
-$doc = ucfirst($data['estado_documentacion']??'pendiente');
-$this->Cell(20,6,$doc,1,1,'C');
+
 }
 }
 $pdf = new PDF_Personal_Lote();
@@ -946,15 +945,18 @@ die('<h2 style="color:red;text-align:center;padding:50px">❌ Acceso denegado</h
 }
 ob_clean();
 $conn = getDBConnection();
-// ✅ TAMAÑO DE LOTE FIJO EN 40 CREDENCIALES POR PDF (REQUERIMIENTO)
-$tamano_lote = 40;
+// ✅ TAMAÑO DE LOTE CONFIGURABLE SEGÚN memory_limit (512M permite hasta 100 por PDF)
+$memory_limit = ini_get('memory_limit');
+$memory_mb = preg_match('/^(\d+)M$/i', $memory_limit, $matches) ? (int)$matches[1] : 128;
+// Con 512M podemos procesar hasta 100 credenciales por PDF de forma segura
+$tamano_lote = ($memory_mb >= 512) ? 100 : 80;
 $personal_ids = isset($_POST['personal_ids']) && is_array($_POST['personal_ids'])
 ? array_map('intval', $_POST['personal_ids']) : [];
 if (empty($personal_ids)) {
 die('<h2 style="color:red;text-align:center;padding:50px">❌ No se seleccionó personal para generar credenciales</h2>');
 }
-// ✅ Máximo ajustado: 5 lotes de 40 = 200 credenciales máximo por solicitud
-$maximo_personal = $tamano_lote * 5;
+// ✅ Máximo ajustado según configuración: con 512M permitimos hasta 500 credenciales (5 lotes de 100)
+$maximo_personal = ($memory_mb >= 512) ? ($tamano_lote * 5) : ($tamano_lote * 5);
 if (count($personal_ids) > $maximo_personal) {
 die('<h2 style="color:red;text-align:center;padding:50px">❌ Máximo ' . $maximo_personal . ' credenciales por solicitud (5 lotes de ' . $tamano_lote . ')</h2>');
 }
@@ -1044,7 +1046,7 @@ class PDF_Credencial_Lote extends FPDF {
 function Header() {}
 function Footer() {}
 }
-// ✅ USAR TAMAÑO DE LOTE FIJO EN 40 PARA DIVIDIR EN MÚLTIPLES PDFs
+// ✅ USAR TAMAÑO DE LOTE CONFIGURABLE (40 o 100 según memory_limit)
 $limite_por_pdf = $tamano_lote;
 $chunks = array_chunk($personal_ids, $limite_por_pdf);
 $total_lotes = count($chunks);
@@ -1182,8 +1184,8 @@ if ($credenciales_en_este_lote > 0) {
 $suffix = ($total_lotes > 1) ? '_Parte_' . ($index + 1) : '';
 $nombre_archivo = 'Credenciales_Lote_' . date('Ymd_His') . $suffix . '.pdf';
 $pdf->Output('D', $nombre_archivo);
-// ✅ Si hay más lotes pendientes, pausar para que el usuario descargue cada uno
-if ($index < ($total_lotes - 1)) {
+// ✅ Si hay más lotes pendientes y memory_limit < 512M, pausar para confirmación
+if ($index < ($total_lotes - 1) && $memory_mb < 512) {
 echo "<script>
 setTimeout(function() {
 if(confirm('✅ PDF Parte " . ($index + 1) . " generado.\
@@ -1380,54 +1382,22 @@ if (!in_array('contacto_emergencia_parentesco', $columns)) {
 $conn->exec("ALTER TABLE personal ADD COLUMN contacto_emergencia_parentesco VARCHAR(50) NULL AFTER contacto_emergencia_telefono");
 error_log("Columna 'contacto_emergencia_parentesco' agregada a tabla personal");
 }
-// ✅ NUEVOS CAMPOS: ANTECEDENTES DE EMPRESA (SUMARIOS, SANCIONES, LEY 19.549)
-if (!in_array('sumario_numero', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sumario_numero VARCHAR(50) NULL AFTER contacto_emergencia_parentesco");
-error_log("Columna 'sumario_numero' agregada a tabla personal");
-}
-if (!in_array('sumario_fecha_inicio', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sumario_fecha_inicio DATE NULL AFTER sumario_numero");
-error_log("Columna 'sumario_fecha_inicio' agregada a tabla personal");
-}
-if (!in_array('sumario_estado', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sumario_estado ENUM('en_curso', 'cerrado', 'archivado', 'sobreseido') DEFAULT NULL AFTER sumario_fecha_inicio");
-error_log("Columna 'sumario_estado' agregada a tabla personal");
-}
-if (!in_array('sumario_resolucion', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sumario_resolucion VARCHAR(100) NULL AFTER sumario_estado");
-error_log("Columna 'sumario_resolucion' agregada a tabla personal");
-}
-if (!in_array('sancion_tipo', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sancion_tipo ENUM('apercibimiento', 'multa', 'suspension', 'inhabilitacion', 'cesantia', 'exoneracion') DEFAULT NULL AFTER sumario_resolucion");
-error_log("Columna 'sancion_tipo' agregada a tabla personal");
-}
-if (!in_array('sancion_fecha', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sancion_fecha DATE NULL AFTER sancion_tipo");
-error_log("Columna 'sancion_fecha' agregada a tabla personal");
-}
-if (!in_array('sancion_resolucion', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sancion_resolucion VARCHAR(100) NULL AFTER sancion_fecha");
-error_log("Columna 'sancion_resolucion' agregada a tabla personal");
-}
-if (!in_array('sancion_monto', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sancion_monto DECIMAL(10,2) NULL AFTER sancion_resolucion");
-error_log("Columna 'sancion_monto' agregada a tabla personal");
-}
-if (!in_array('sancion_fundamento', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN sancion_fundamento TEXT NULL AFTER sancion_monto");
-error_log("Columna 'sancion_fundamento' agregada a tabla personal");
-}
+// ✅ NUEVOS CAMPOS PARA ANTECEDENTES (AGREGAR AUTOMÁTICAMENTE SI NO EXISTEN)
 if (!in_array('antecedentes_observaciones', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN antecedentes_observaciones TEXT NULL AFTER sancion_fundamento");
+$conn->exec("ALTER TABLE personal ADD COLUMN antecedentes_observaciones TEXT NULL AFTER nota_baja");
 error_log("Columna 'antecedentes_observaciones' agregada a tabla personal");
 }
-if (!in_array('empresa_habilitacion_estado', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN empresa_habilitacion_estado ENUM('habilitada', 'suspendida', 'inhabilitada', 'en_proceso') DEFAULT NULL AFTER antecedentes_observaciones");
-error_log("Columna 'empresa_habilitacion_estado' agregada a tabla personal");
+if (!in_array('antecedentes_fecha_verificacion', $columns)) {
+$conn->exec("ALTER TABLE personal ADD COLUMN antecedentes_fecha_verificacion DATE NULL AFTER antecedentes_observaciones");
+error_log("Columna 'antecedentes_fecha_verificacion' agregada a tabla personal");
 }
-if (!in_array('empresa_verificacion_fecha', $columns)) {
-$conn->exec("ALTER TABLE personal ADD COLUMN empresa_verificacion_fecha DATE NULL AFTER empresa_habilitacion_estado");
-error_log("Columna 'empresa_verificacion_fecha' agregada a tabla personal");
+if (!in_array('antecedentes_documento_path', $columns)) {
+$conn->exec("ALTER TABLE personal ADD COLUMN antecedentes_documento_path VARCHAR(255) NULL AFTER antecedentes_fecha_verificacion");
+error_log("Columna 'antecedentes_documento_path' agregada a tabla personal");
+}
+if (!in_array('antecedentes_verificado_por', $columns)) {
+$conn->exec("ALTER TABLE personal ADD COLUMN antecedentes_verificado_por INT NULL AFTER antecedentes_documento_path");
+error_log("Columna 'antecedentes_verificado_por' agregada a tabla personal");
 }
 }
 catch(PDOException $e) {
@@ -1452,18 +1422,20 @@ $target_dir_fotos = "../uploads/fotos_personal/";
 $target_dir_pdf = "../uploads/pdf_personal/";
 $target_dir_cupones = "../uploads/cupones_credencial/";
 $target_dir_uniformes = "../uploads/uniformes/";
+$target_dir_antecedentes = "../uploads/antecedentes/";
 if (!file_exists($target_dir_fotos)) mkdir($target_dir_fotos, 0777, true);
 if (!file_exists($target_dir_pdf)) mkdir($target_dir_pdf, 0777, true);
 if (!file_exists($target_dir_cupones)) mkdir($target_dir_cupones, 0777, true);
 if (!file_exists($target_dir_uniformes)) mkdir($target_dir_uniformes, 0777, true);
-// ==================== ELIMINAR PERSONAL (CON AUDITORÍA) - MODIFICADO: UPDATE EN LUGAR DE DELETE ====================
+if (!file_exists($target_dir_antecedentes)) mkdir($target_dir_antecedentes, 0777, true);
+// ==================== ELIMINAR PERSONAL (CON AUDITORÍA) ====================
 if (isset($_POST['action']) && $_POST['action'] === 'delete') {
 try {
 $personal_id = (int)$_POST['personal_id'];
 $stmt = $conn->prepare("SELECT * FROM personal WHERE id = :id");
 $stmt->execute(['id' => $personal_id]);
 $datos_antiguos = $stmt->fetch();
-$stmt = $conn->prepare("SELECT foto, pdf_datos_personales, cupon_pago_credencial, foto_uniforme FROM personal WHERE id = :id");
+$stmt = $conn->prepare("SELECT foto, pdf_datos_personales, cupon_pago_credencial, foto_uniforme, antecedentes_documento_path FROM personal WHERE id = :id");
 $stmt->execute(['id' => $personal_id]);
 $files = $stmt->fetch();
 if (!empty($files['foto']) && file_exists($target_dir_fotos . $files['foto']))
@@ -1474,24 +1446,23 @@ if (!empty($files['cupon_pago_credencial']) && file_exists($target_dir_cupones .
 unlink($target_dir_cupones . $files['cupon_pago_credencial']);
 if (!empty($files['foto_uniforme']) && file_exists($target_dir_uniformes . $files['foto_uniforme']))
 unlink($target_dir_uniformes . $files['foto_uniforme']);
-// ✅ CAMBIO CRÍTICO: UPDATE en lugar de DELETE para preservar historial y auditoría (Ley 19.549)
-$stmt = $conn->prepare("UPDATE personal SET baja = 1, activo = 0, fecha_baja = NOW(), updated_at = NOW() WHERE id = :id");
+if (!empty($files['antecedentes_documento_path']) && file_exists($target_dir_antecedentes . $files['antecedentes_documento_path']))
+unlink($target_dir_antecedentes . $files['antecedentes_documento_path']);
+$stmt = $conn->prepare("DELETE FROM personal WHERE id = :id");
 $stmt->execute(['id' => $personal_id]);
 $detalles = [
-'accion' => 'BAJA_LOGICA',
+'accion' => 'ELIMINACION',
 'tabla' => 'personal',
 'registro_id' => $personal_id,
-'estado_anterior' => ['activo' => $datos_antiguos['activo'], 'baja' => $datos_antiguos['baja']],
-'estado_nuevo' => ['activo' => 0, 'baja' => 1, 'fecha_baja' => date('Y-m-d H:i:s')],
-'usuario' => $user['nombre_usuario'] ?? 'Sistema',
-'nota' => 'Baja lógica aplicada para preservar integridad de auditoría según Ley 19.549'
+'datos_eliminados' => $datos_antiguos,
+'usuario' => $user['nombre_usuario'] ?? 'Sistema'
 ];
-logAuditoria($conn, 'BAJA_LOGICA', 'personal', $personal_id, $detalles);
-echo json_encode(['success' => true, 'message' => 'Personal dado de baja correctamente (registro preservado para auditoría)']);
+logAuditoria($conn, 'ELIMINACION', 'personal', $personal_id, $detalles);
+echo json_encode(['success' => true, 'message' => 'Personal eliminado correctamente']);
 exit;
 } catch(PDOException $e) {
-error_log("Error al dar de baja personal: " . $e->getMessage());
-echo json_encode(['success' => false, 'message' => 'Error al actualizar estado de baja']);
+error_log("Error al eliminar personal: " . $e->getMessage());
+echo json_encode(['success' => false, 'message' => 'Error al eliminar personal']);
 exit;
 }
 }
@@ -1553,19 +1524,10 @@ $ano_finalizacion = !empty($_POST['ano_finalizacion']) ? (int)$_POST['ano_finali
 $contacto_emergencia_nombre = sanitizeInput($_POST['contacto_emergencia_nombre'] ?? '');
 $contacto_emergencia_telefono = sanitizeInput($_POST['contacto_emergencia_telefono'] ?? '');
 $contacto_emergencia_parentesco = sanitizeInput($_POST['contacto_emergencia_parentesco'] ?? '');
-// ✅ NUEVOS CAMPOS: ANTECEDENTES DE EMPRESA (LEY 19.549)
-$sumario_numero = sanitizeInput($_POST['sumario_numero'] ?? '');
-$sumario_fecha_inicio = !empty($_POST['sumario_fecha_inicio']) ? $_POST['sumario_fecha_inicio'] : null;
-$sumario_estado = sanitizeInput($_POST['sumario_estado'] ?? '');
-$sumario_resolucion = sanitizeInput($_POST['sumario_resolucion'] ?? '');
-$sancion_tipo = sanitizeInput($_POST['sancion_tipo'] ?? '');
-$sancion_fecha = !empty($_POST['sancion_fecha']) ? $_POST['sancion_fecha'] : null;
-$sancion_resolucion = sanitizeInput($_POST['sancion_resolucion'] ?? '');
-$sancion_monto = !empty($_POST['sancion_monto']) ? (float)$_POST['sancion_monto'] : null;
-$sancion_fundamento = sanitizeInput($_POST['sancion_fundamento'] ?? '');
+// ✅ NUEVOS CAMPOS ANTECEDENTES
 $antecedentes_observaciones = sanitizeInput($_POST['antecedentes_observaciones'] ?? '');
-$empresa_habilitacion_estado = sanitizeInput($_POST['empresa_habilitacion_estado'] ?? '');
-$empresa_verificacion_fecha = !empty($_POST['empresa_verificacion_fecha']) ? $_POST['empresa_verificacion_fecha'] : null;
+$antecedentes_fecha_verificacion = !empty($_POST['antecedentes_fecha_verificacion']) ? $_POST['antecedentes_fecha_verificacion'] : null;
+$antecedentes_verificado_por = !empty($_POST['antecedentes_verificado_por']) ? (int)$_POST['antecedentes_verificado_por'] : null;
 if (empty($nombre) || empty($apellido) || empty($dni)) {
 throw new Exception('Los campos Nombre, Apellido y DNI son obligatorios');
 }
@@ -1654,6 +1616,23 @@ $stmt->execute(['id' => $personal_id]);
 $existing = $stmt->fetch();
 $cupon_pago_file = $existing['cupon_pago_credencial'] ?? '';
 }
+// ✅ PROCESAR ARCHIVO DE ANTECEDENTES
+$antecedentes_file = '';
+if (isset($_FILES['antecedentes_documento']) && $_FILES['antecedentes_documento']['error'] === UPLOAD_ERR_OK) {
+$file_extension = strtolower(pathinfo($_FILES['antecedentes_documento']['name'], PATHINFO_EXTENSION));
+if (!in_array($file_extension, ['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx'])) throw new Exception('El documento de antecedentes debe ser PDF, JPG, PNG, DOC o DOCX');
+if ($_FILES['antecedentes_documento']['size'] > 10000000) throw new Exception('El documento no debe superar los 10MB');
+$new_filename = 'antecedentes_' . $empresa_nombre_limpio . '_' . $fecha_actual . '_' . $dni . '.' . $file_extension;
+$target_file = $target_dir_antecedentes . $new_filename;
+if (move_uploaded_file($_FILES['antecedentes_documento']['tmp_name'], $target_file)) $antecedentes_file = $new_filename;
+else throw new Exception('Error al subir el documento de antecedentes');
+}
+if (empty($antecedentes_file) && $personal_id) {
+$stmt = $conn->prepare("SELECT antecedentes_documento_path FROM personal WHERE id = :id");
+$stmt->execute(['id' => $personal_id]);
+$existing = $stmt->fetch();
+$antecedentes_file = $existing['antecedentes_documento_path'] ?? '';
+}
 $datos_nuevos = [
 'empresa_id' => $empresa_id, 'sucursal_id' => $sucursal_id, 'nombre' => $nombre, 'apellido' => $apellido,
 'dni' => $dni, 'fecha_nacimiento' => $fecha_nacimiento, 'domicilio' => $domicilio, 'telefono' => $telefono,
@@ -1672,12 +1651,7 @@ $datos_nuevos = [
 'sexo' => $sexo, 'estado_civil' => $estado_civil, 'lugar_nacimiento' => $lugar_nacimiento, 'grupo_sanguineo' => $grupo_sanguineo,
 'fecha_baja' => $fecha_baja, 'nota_baja' => $nota_baja, 'instituto_nombre' => $instituto_nombre, 'ano_finalizacion' => $ano_finalizacion,
 'contacto_emergencia_nombre' => $contacto_emergencia_nombre, 'contacto_emergencia_telefono' => $contacto_emergencia_telefono, 'contacto_emergencia_parentesco' => $contacto_emergencia_parentesco,
-// ✅ NUEVOS CAMPOS: ANTECEDENTES DE EMPRESA
-'sumario_numero' => $sumario_numero, 'sumario_fecha_inicio' => $sumario_fecha_inicio, 'sumario_estado' => $sumario_estado,
-'sumario_resolucion' => $sumario_resolucion, 'sancion_tipo' => $sancion_tipo, 'sancion_fecha' => $sancion_fecha,
-'sancion_resolucion' => $sancion_resolucion, 'sancion_monto' => $sancion_monto, 'sancion_fundamento' => $sancion_fundamento,
-'antecedentes_observaciones' => $antecedentes_observaciones, 'empresa_habilitacion_estado' => $empresa_habilitacion_estado,
-'empresa_verificacion_fecha' => $empresa_verificacion_fecha
+'antecedentes_observaciones' => $antecedentes_observaciones, 'antecedentes_fecha_verificacion' => $antecedentes_fecha_verificacion, 'antecedentes_documento_path' => $antecedentes_file, 'antecedentes_verificado_por' => $antecedentes_verificado_por
 ];
 if ($personal_id) {
 $stmt = $conn->prepare("
@@ -1699,11 +1673,7 @@ observaciones = :observaciones, fecha_autorizacion = :fecha_autorizacion, fecha_
 sexo = :sexo, estado_civil = :estado_civil, lugar_nacimiento = :lugar_nacimiento, grupo_sanguineo = :grupo_sanguineo,
 fecha_baja = :fecha_baja, nota_baja = :nota_baja, instituto_nombre = :instituto_nombre, ano_finalizacion = :ano_finalizacion,
 contacto_emergencia_nombre = :contacto_emergencia_nombre, contacto_emergencia_telefono = :contacto_emergencia_telefono, contacto_emergencia_parentesco = :contacto_emergencia_parentesco,
-sumario_numero = :sumario_numero, sumario_fecha_inicio = :sumario_fecha_inicio, sumario_estado = :sumario_estado,
-sumario_resolucion = :sumario_resolucion, sancion_tipo = :sancion_tipo, sancion_fecha = :sancion_fecha,
-sancion_resolucion = :sancion_resolucion, sancion_monto = :sancion_monto, sancion_fundamento = :sancion_fundamento,
-antecedentes_observaciones = :antecedentes_observaciones, empresa_habilitacion_estado = :empresa_habilitacion_estado,
-empresa_verificacion_fecha = :empresa_verificacion_fecha,
+antecedentes_observaciones = :antecedentes_observaciones, antecedentes_fecha_verificacion = :antecedentes_fecha_verificacion, antecedentes_documento_path = :antecedentes_documento_path, antecedentes_verificado_por = :antecedentes_verificado_por,
 updated_at = NOW()
 WHERE id = :id
 ");
@@ -1725,12 +1695,7 @@ $stmt->execute([
 'sexo' => $sexo, 'estado_civil' => $estado_civil, 'lugar_nacimiento' => $lugar_nacimiento, 'grupo_sanguineo' => $grupo_sanguineo,
 'fecha_baja' => $fecha_baja, 'nota_baja' => $nota_baja, 'instituto_nombre' => $instituto_nombre, 'ano_finalizacion' => $ano_finalizacion,
 'contacto_emergencia_nombre' => $contacto_emergencia_nombre, 'contacto_emergencia_telefono' => $contacto_emergencia_telefono, 'contacto_emergencia_parentesco' => $contacto_emergencia_parentesco,
-// ✅ NUEVOS CAMPOS: ANTECEDENTES DE EMPRESA
-'sumario_numero' => $sumario_numero, 'sumario_fecha_inicio' => $sumario_fecha_inicio, 'sumario_estado' => $sumario_estado,
-'sumario_resolucion' => $sumario_resolucion, 'sancion_tipo' => $sancion_tipo, 'sancion_fecha' => $sancion_fecha,
-'sancion_resolucion' => $sancion_resolucion, 'sancion_monto' => $sancion_monto, 'sancion_fundamento' => $sancion_fundamento,
-'antecedentes_observaciones' => $antecedentes_observaciones, 'empresa_habilitacion_estado' => $empresa_habilitacion_estado,
-'empresa_verificacion_fecha' => $empresa_verificacion_fecha,
+'antecedentes_observaciones' => $antecedentes_observaciones, 'antecedentes_fecha_verificacion' => $antecedentes_fecha_verificacion, 'antecedentes_documento_path' => $antecedentes_file, 'antecedentes_verificado_por' => $antecedentes_verificado_por,
 'id' => $personal_id
 ]);
 $detalles = [
@@ -1754,8 +1719,7 @@ estudios_cursados, clu_numero, inhibicion_bienes, habilitacion_comercial, modali
 fecha_vencimiento, fecha_revalidacion,
 sexo, estado_civil, lugar_nacimiento, grupo_sanguineo, fecha_baja, nota_baja, instituto_nombre, ano_finalizacion,
 contacto_emergencia_nombre, contacto_emergencia_telefono, contacto_emergencia_parentesco,
-sumario_numero, sumario_fecha_inicio, sumario_estado, sumario_resolucion, sancion_tipo, sancion_fecha,
-sancion_resolucion, sancion_monto, sancion_fundamento, antecedentes_observaciones, empresa_habilitacion_estado, empresa_verificacion_fecha)
+antecedentes_observaciones, antecedentes_fecha_verificacion, antecedentes_documento_path, antecedentes_verificado_por)
 VALUES (:empresa_id, :sucursal_id, :nombre, :apellido, :dni, :fecha_nacimiento, :domicilio, :telefono,
 :email, :cargo, :fecha_ingreso, :foto, :foto_uniforme, :pdf_datos_personales, :cupon_pago_credencial, :activo,
 :apto_fisico, :apto_psicologico, :baja, :tiene_certificado, :tiene_penales, :antecedentes_provinciales, :arma_autorizada, :ram, :pago_credencial,
@@ -1764,8 +1728,7 @@ VALUES (:empresa_id, :sucursal_id, :nombre, :apellido, :dni, :fecha_nacimiento, 
 :fecha_vencimiento, :fecha_revalidacion,
 :sexo, :estado_civil, :lugar_nacimiento, :grupo_sanguineo, :fecha_baja, :nota_baja, :instituto_nombre, :ano_finalizacion,
 :contacto_emergencia_nombre, :contacto_emergencia_telefono, :contacto_emergencia_parentesco,
-:sumario_numero, :sumario_fecha_inicio, :sumario_estado, :sumario_resolucion, :sancion_tipo, :sancion_fecha,
-:sancion_resolucion, :sancion_monto, :sancion_fundamento, :antecedentes_observaciones, :empresa_habilitacion_estado, :empresa_verificacion_fecha)
+:antecedentes_observaciones, :antecedentes_fecha_verificacion, :antecedentes_documento_path, :antecedentes_verificado_por)
 ");
 $stmt->execute([
 'empresa_id' => $empresa_id, 'sucursal_id' => $sucursal_id, 'nombre' => $nombre, 'apellido' => $apellido,
@@ -1785,12 +1748,7 @@ $stmt->execute([
 'sexo' => $sexo, 'estado_civil' => $estado_civil, 'lugar_nacimiento' => $lugar_nacimiento, 'grupo_sanguineo' => $grupo_sanguineo,
 'fecha_baja' => $fecha_baja, 'nota_baja' => $nota_baja, 'instituto_nombre' => $instituto_nombre, 'ano_finalizacion' => $ano_finalizacion,
 'contacto_emergencia_nombre' => $contacto_emergencia_nombre, 'contacto_emergencia_telefono' => $contacto_emergencia_telefono, 'contacto_emergencia_parentesco' => $contacto_emergencia_parentesco,
-// ✅ NUEVOS CAMPOS: ANTECEDENTES DE EMPRESA
-'sumario_numero' => $sumario_numero, 'sumario_fecha_inicio' => $sumario_fecha_inicio, 'sumario_estado' => $sumario_estado,
-'sumario_resolucion' => $sumario_resolucion, 'sancion_tipo' => $sancion_tipo, 'sancion_fecha' => $sancion_fecha,
-'sancion_resolucion' => $sancion_resolucion, 'sancion_monto' => $sancion_monto, 'sancion_fundamento' => $sancion_fundamento,
-'antecedentes_observaciones' => $antecedentes_observaciones, 'empresa_habilitacion_estado' => $empresa_habilitacion_estado,
-'empresa_verificacion_fecha' => $empresa_verificacion_fecha
+'antecedentes_observaciones' => $antecedentes_observaciones, 'antecedentes_fecha_verificacion' => $antecedentes_fecha_verificacion, 'antecedentes_documento_path' => $antecedentes_file, 'antecedentes_verificado_por' => $antecedentes_verificado_por
 ]);
 $nueva_id = $conn->lastInsertId();
 $detalles = [
@@ -2516,46 +2474,7 @@ background: #fff;
 <div class="dashboard">
 <?php include '../includes/sidebar.php'; ?>
 <div class="main-content" style="margin-left: 280px; padding: 20px;">
-<?php if ($success): ?>
-<div class="alert alert-success alert-dismissible fade show" role="alert">
-<i class="fas fa-check-circle"></i> <?php echo $success; ?>
-<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
-<?php endif; ?>
-<?php if ($error): ?>
-<div class="alert alert-danger alert-dismissible fade show" role="alert">
-<i class="fas fa-exclamation-triangle"></i> <?php echo $error; ?>
-<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-</div>
-<?php endif; ?>
-<?php if ($total_inactivos_sin_baja > 0): ?>
-<div class="alert-inactivos">
-<div class="d-flex align-items-center justify-content-between">
-<div>
-<i class="fas fa-user-times fa-2x text-warning me-3"></i>
-<strong class="fs-5">⚠️ Personal Inactivo (Sin Baja)</strong>
-<p class="mb-0 mt-2 text-muted">Hay personal que está inactivo pero no ha sido dado de baja. Revise y regularice la situación.</p>
-</div>
-<div class="alert-inactivos-count" style="background: #e74c3c; color: white; padding: 10px 25px; border-radius: 25px; font-size: 1.5rem; font-weight: 700; display: inline-block;">
-<i class="fas fa-users"></i> <?php echo $total_inactivos_sin_baja; ?> Registros
-</div>
-</div>
-</div>
-<?php endif; ?>
-<?php if ($total_pendientes_doc > 0): ?>
-<div class="alert-documentacion-pendiente">
-<div class="d-flex align-items-center justify-content-between">
-<div>
-<i class="fas fa-file-signature fa-2x text-warning me-3"></i>
-<strong class="fs-5">📄 Documentación Pendiente de Revisión</strong>
-<p class="mb-0 mt-2 text-muted">Documentación de personal cargada que requiere aprobación o rechazo por parte del administrador.</p>
-</div>
-<div class="alert-documentacion-count" style="background: #f39c12; color: white; padding: 10px 25px; border-radius: 25px; font-size: 1.5rem; font-weight: 700; display: inline-block;">
-<i class="fas fa-clock"></i> <?php echo $total_pendientes_doc; ?> Pendientes
-</div>
-</div>
-</div>
-<?php endif; ?>
+ 
 <!-- ESTADÍSTICAS -->
 <div class="stats-container">
 <div class="stat-card">
@@ -2671,13 +2590,13 @@ foreach ($letras as $letra): ?>
 <i class="fas fa-search me-2"></i>Buscar Personal
 </button>
 <button type="button" class="btn btn-success" onclick="generarLoteCredenciales()" id="btnGenerarLote" disabled>
-<i class="fas fa-print me-2"></i>Generar Lote (40 c/u)
+<i class="fas fa-print me-2"></i>Generar Lote (80/100 c/u)
 </button>
 <button type="button" class="btn btn-exportar-lista" onclick="exportarListaSeleccionadaPDF()" id="btnExportarLista" disabled>
 <i class="fas fa-file-pdf me-2"></i>Exportar Lista (PDF)
 </button>
 </div>
-<small class="text-muted d-block mt-1">✅ Cada PDF de credenciales contendrá exactamente 40 credenciales | 📄 Lista en PDF con personal seleccionado</small>
+<small class="text-muted d-block mt-1">✅ Cada PDF contendrá 80 o 100 credenciales según memory_limit | 📄 Lista en PDF con personal seleccionado</small>
 </div>
 </div>
 <!-- Resultados de búsqueda para lote -->
@@ -3478,7 +3397,7 @@ $revisado_por_username = $persona['revisado_por_username'] ?? null;
 <form method="POST" action="personal.php" enctype="multipart/form-data">
 <input type="hidden" name="guardar_personal" value="1">
 <input type="hidden" name="personal_id" value="<?php echo $persona['id']; ?>">
-<!-- NAV TABS MODAL -->
+<!-- NAV TABS MODAL - ACTUALIZADO CON PESTAÑA ANTECEDENTES -->
 <ul class="nav nav-tabs mb-3" id="editPersonalTabs<?php echo $persona['id']; ?>" role="tablist">
 <li class="nav-item" role="presentation">
 <button class="nav-link active" id="edit-datos-personales-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-datos-personales<?php echo $persona['id']; ?>" type="button" role="tab">Datos Personales</button>
@@ -3490,10 +3409,10 @@ $revisado_por_username = $persona['revisado_por_username'] ?? null;
 <button class="nav-link" id="edit-certificaciones-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-certificaciones<?php echo $persona['id']; ?>" type="button" role="tab">Certificaciones y Vencimientos</button>
 </li>
 <li class="nav-item" role="presentation">
-<button class="nav-link" id="edit-emergencia-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-emergencia<?php echo $persona['id']; ?>" type="button" role="tab">Contacto de Emergencia y Salud</button>
+<button class="nav-link" id="edit-emergencia-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-emergencia<?php echo $persona['id']; ?>" type="button" role="tab">Contacto de Emergencia</button>
 </li>
 <li class="nav-item" role="presentation">
-<button class="nav-link" id="edit-antecedentes-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-antecedentes<?php echo $persona['id']; ?>" type="button" role="tab">Antecedentes de Empresa</button>
+<button class="nav-link" id="edit-antecedentes-tab<?php echo $persona['id']; ?>" data-bs-toggle="tab" data-bs-target="#edit-antecedentes<?php echo $persona['id']; ?>" type="button" role="tab"><i class="fas fa-clipboard-list me-1"></i>Antecedentes</button>
 </li>
 </ul>
 <!-- TAB CONTENT MODAL -->
@@ -3817,104 +3736,54 @@ value="<?php echo htmlspecialchars($persona['fecha_revalidacion'] ?? ''); ?>">
 </div>
 </div>
 </div>
-<!-- ✅ NUEVO TAB 5: ANTECEDENTES DE EMPRESA (LEY 19.549) -->
+<!-- ✅ NUEVA PESTAÑA: ANTECEDENTES -->
 <div class="tab-pane fade" id="edit-antecedentes<?php echo $persona['id']; ?>" role="tabpanel">
 <div class="row g-3">
 <div class="col-12">
-<h6 class="text-primary mb-3"><i class="fas fa-gavel me-2"></i>Sumarios Administrativos (Ley 19.549)</h6>
-<div class="card p-3 bg-light">
-<div class="row g-2">
-<div class="col-md-3">
-<label class="form-label small">N° Sumario</label>
-<input type="text" name="sumario_numero" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sumario_numero'] ?? ''); ?>"
-placeholder="Ej: SUM-2024-001">
+<h6 class="mb-3"><i class="fas fa-clipboard-list me-2"></i>Registro de Antecedentes</h6>
+<p class="text-muted small">Complete la información de antecedentes del personal. Los documentos adjuntos serán almacenados de forma segura.</p>
 </div>
-<div class="col-md-3">
-<label class="form-label small">Fecha de Inicio</label>
-<input type="date" name="sumario_fecha_inicio" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sumario_fecha_inicio'] ?? ''); ?>">
+<div class="col-12">
+<label class="form-label">Observaciones de Antecedentes</label>
+<textarea name="antecedentes_observaciones" class="form-control" rows="4" placeholder="Ingrese observaciones sobre los antecedentes del personal..."><?php echo htmlspecialchars($persona['antecedentes_observaciones'] ?? ''); ?></textarea>
+<small class="text-muted">Detalles relevantes sobre verificaciones de antecedentes, observaciones especiales, etc.</small>
 </div>
-<div class="col-md-3">
-<label class="form-label small">Estado</label>
-<select name="sumario_estado" class="form-select form-select-sm">
-<option value="">Seleccionar...</option>
-<option value="en_curso" <?php echo ($persona['sumario_estado'] ?? '') === 'en_curso' ? 'selected' : ''; ?>>En Curso</option>
-<option value="cerrado" <?php echo ($persona['sumario_estado'] ?? '') === 'cerrado' ? 'selected' : ''; ?>>Cerrado</option>
-<option value="archivado" <?php echo ($persona['sumario_estado'] ?? '') === 'archivado' ? 'selected' : ''; ?>>Archivado</option>
-<option value="sobreseido" <?php echo ($persona['sumario_estado'] ?? '') === 'sobreseido' ? 'selected' : ''; ?>>Sobreseído</option>
-</select>
-</div>
-<div class="col-md-3">
-<label class="form-label small">Resolución</label>
-<input type="text" name="sumario_resolucion" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sumario_resolucion'] ?? ''); ?>"
-placeholder="N° Resolución">
-</div>
-</div>
-</div>
-</div>
-<div class="col-12 mt-3">
-<h6 class="text-danger mb-3"><i class="fas fa-exclamation-triangle me-2"></i>Sanciones Aplicadas</h6>
-<div class="card p-3 bg-light">
-<div class="row g-2">
 <div class="col-md-4">
-<label class="form-label small">Tipo de Sanción</label>
-<select name="sancion_tipo" class="form-select form-select-sm">
-<option value="">Seleccionar...</option>
-<option value="apercibimiento" <?php echo ($persona['sancion_tipo'] ?? '') === 'apercibimiento' ? 'selected' : ''; ?>>Apercibimiento</option>
-<option value="multa" <?php echo ($persona['sancion_tipo'] ?? '') === 'multa' ? 'selected' : ''; ?>>Multa</option>
-<option value="suspension" <?php echo ($persona['sancion_tipo'] ?? '') === 'suspension' ? 'selected' : ''; ?>>Suspensión</option>
-<option value="inhabilitacion" <?php echo ($persona['sancion_tipo'] ?? '') === 'inhabilitacion' ? 'selected' : ''; ?>>Inhabilitación</option>
-<option value="cesantia" <?php echo ($persona['sancion_tipo'] ?? '') === 'cesantia' ? 'selected' : ''; ?>>Cesantía</option>
-<option value="exoneracion" <?php echo ($persona['sancion_tipo'] ?? '') === 'exoneracion' ? 'selected' : ''; ?>>Exoneración</option>
+<label class="form-label">Fecha de Verificación</label>
+<input type="date" name="antecedentes_fecha_verificacion" class="form-control" value="<?php echo htmlspecialchars($persona['antecedentes_fecha_verificacion'] ?? ''); ?>">
+</div>
+<div class="col-md-4">
+<label class="form-label">Verificado Por</label>
+<select name="antecedentes_verificado_por" class="form-select">
+<option value="">Seleccione...</option>
+<?php
+$stmt_verif = $conn->query("SELECT id, username FROM usuarios ORDER BY username");
+$verificadores = $stmt_verif->fetchAll();
+foreach ($verificadores as $verif):
+?>
+<option value="<?php echo $verif['id']; ?>" <?php echo ($persona['antecedentes_verificado_por'] ?? '') == $verif['id'] ? 'selected' : ''; ?>>
+<?php echo htmlspecialchars($verif['username']); ?>
+</option>
+<?php endforeach; ?>
 </select>
 </div>
-<div class="col-md-3">
-<label class="form-label small">Fecha de Sanción</label>
-<input type="date" name="sancion_fecha" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sancion_fecha'] ?? ''); ?>">
+<div class="col-md-4">
+<label class="form-label">Documento de Antecedentes</label>
+<input type="file" name="antecedentes_documento" class="form-control" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx">
+<?php if (!empty($persona['antecedentes_documento_path'])): ?>
+<small class="text-muted d-block mt-1">
+<a href="../uploads/antecedentes/<?php echo htmlspecialchars($persona['antecedentes_documento_path']); ?>" target="_blank" class="text-decoration-none">
+<i class="fas fa-file-alt me-1"></i>Ver documento actual
+</a>
+</small>
+<?php endif; ?>
+<small class="text-muted d-block mt-1">Formatos: PDF, JPG, PNG, DOC, DOCX (Máx. 10MB)</small>
 </div>
-<div class="col-md-3">
-<label class="form-label small">N° Resolución</label>
-<input type="text" name="sancion_resolucion" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sancion_resolucion'] ?? ''); ?>">
+<div class="col-12">
+<div class="alert alert-info mb-0">
+<i class="fas fa-info-circle me-2"></i>
+<strong>Nota:</strong> Los antecedentes se verifican periódicamente. Mantenga actualizada la fecha de verificación para asegurar el cumplimiento normativo.
 </div>
-<div class="col-md-2">
-<label class="form-label small">Monto ($)</label>
-<input type="number" name="sancion_monto" class="form-control form-control-sm"
-value="<?php echo htmlspecialchars($persona['sancion_monto'] ?? ''); ?>" step="0.01">
-</div>
-</div>
-<div class="mt-2">
-<label class="form-label small">Fundamento Legal</label>
-<textarea name="sancion_fundamento" class="form-control form-control-sm" rows="2"
-placeholder="Artículo de la Ley 19.549 u otra normativa aplicable"><?php echo htmlspecialchars($persona['sancion_fundamento'] ?? ''); ?></textarea>
-</div>
-</div>
-</div>
-<div class="col-12 mt-3">
-<label class="form-label">Estado de Habilitación de la Empresa</label>
-<select name="empresa_habilitacion_estado" class="form-select">
-<option value="">Seleccionar...</option>
-<option value="habilitada" <?php echo ($persona['empresa_habilitacion_estado'] ?? '') === 'habilitada' ? 'selected' : ''; ?>>Habilitada</option>
-<option value="suspendida" <?php echo ($persona['empresa_habilitacion_estado'] ?? '') === 'suspendida' ? 'selected' : ''; ?>>Suspendida</option>
-<option value="inhabilitada" <?php echo ($persona['empresa_habilitacion_estado'] ?? '') === 'inhabilitada' ? 'selected' : ''; ?>>Inhabilitada</option>
-<option value="en_proceso" <?php echo ($persona['empresa_habilitacion_estado'] ?? '') === 'en_proceso' ? 'selected' : ''; ?>>En Proceso de Evaluación</option>
-</select>
-</div>
-<div class="col-md-6">
-<label class="form-label">Fecha de Última Verificación</label>
-<input type="date" name="empresa_verificacion_fecha" class="form-control"
-value="<?php echo htmlspecialchars($persona['empresa_verificacion_fecha'] ?? ''); ?>">
-</div>
-<div class="col-md-6">
-<label class="form-label">Observaciones Administrativas</label>
-<textarea name="antecedentes_observaciones" class="form-control" rows="3"
-placeholder="Observaciones relevantes sobre antecedentes administrativos, sumarios, o sanciones..."><?php echo htmlspecialchars($persona['antecedentes_observaciones'] ?? ''); ?></textarea>
-</div>
-<div class="col-12 mt-2">
-<small class="text-muted"><i class="fas fa-info-circle me-1"></i>Los campos de antecedentes se gestionan conforme a la Ley Nacional de Procedimientos Administrativos N° 19.549 y normativas complementarias de la Provincia del Chubut.</small>
 </div>
 </div>
 </div>
@@ -4061,7 +3930,9 @@ text: 'Cargando personal disponible',
 allowOutsideClick: false,
 didOpen: () => { Swal.showLoading() }
 });
-const tamanoLote = 40; // ✅ TAMAÑO FIJO EN 40
+// ✅ TAMAÑO DE LOTE DINÁMICO SEGÚN memory_limit
+const memoryLimit = <?php echo preg_match('/^(\d+)M$/i', ini_get('memory_limit'), $m) ? (int)$m[1] : 128; ?>;
+const tamanoLote = (memoryLimit >= 512) ? 100 : 80;
 const empresaId = document.getElementById('loteEmpresaSelect')?.value || '0';
 const sucursalId = document.getElementById('loteSucursalSelect')?.value || '0';
 const activo = document.getElementById('loteActivoSelect')?.value || '';
@@ -4186,8 +4057,9 @@ text: 'Seleccione al menos un personal'
 });
 return;
 }
-// ✅ TAMAÑO DE LOTE FIJO EN 40
-const tamanoLote = 40;
+// ✅ TAMAÑO DE LOTE DINÁMICO SEGÚN memory_limit
+const memoryLimit = <?php echo preg_match('/^(\d+)M$/i', ini_get('memory_limit'), $m) ? (int)$m[1] : 128; ?>;
+const tamanoLote = (memoryLimit >= 512) ? 100 : 80;
 const empresaId = document.getElementById('loteEmpresaSelect')?.value || '0';
 const sucursalId = document.getElementById('loteSucursalSelect')?.value || '0';
 const activo = document.getElementById('loteActivoSelect')?.value || '';
@@ -4197,9 +4069,10 @@ const credencial = document.getElementById('loteCredencialSelect')?.value || '';
 const letraDesde = document.getElementById('loteLetraDesdeSelect')?.value || 'A';
 const letraHasta = document.getElementById('loteLetraHastaSelect')?.value || 'Z';
 const totalLotes = Math.ceil(selectedIds.length / tamanoLote);
+const modoContinuo = (memoryLimit >= 512);
 Swal.fire({
 title: 'Generando Credenciales',
-html: `Se generarán <strong>${selectedIds.length}</strong> credenciales en <strong>${totalLotes}</strong> PDF(s) de <strong>${tamanoLote}</strong> credenciales cada uno.<br><br>⚠️ Deberá confirmar cada descarga individualmente.`,
+html: `Se generarán <strong>${selectedIds.length}</strong> credenciales en <strong>${totalLotes}</strong> PDF(s) de <strong>${tamanoLote}</strong> credenciales cada uno.<br><br>${modoContinuo ? '✅ Modo continuo activado (sin confirmaciones intermedias)' : '⚠️ Deberá confirmar cada descarga individualmente.'}`,
 icon: 'info',
 showConfirmButton: true,
 confirmButtonText: 'Continuar',
